@@ -64,7 +64,7 @@ class SdCardFlasher(
                 val now = System.nanoTime()
                 // Throttle UI updates to ~4/sec so the main thread stays responsive
                 val dt = (now - lastEmitNs) / 1_000_000_000.0
-                if (dt >= 0.25 || written == aligned) {
+                if (dt >= 0.25 || lastBytes == 0L) {
                     lastSpeed = if (dt > 0) (written - lastBytes) / dt else lastSpeed
                     lastEmitNs = now
                     lastBytes = written
