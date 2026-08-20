@@ -2,11 +2,8 @@ name: Release AAB
 
 on:
   workflow_dispatch:
-    inputs:
-      note:
-        description: "Release note"
-        required: false
-        default: "Play Store upload bundle"
+  push:
+    branches: [main]
 
 permissions:
   contents: write
@@ -31,19 +28,37 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Decode upload keystore
-        if: ${{ secrets.PIFLASH_STORE_BASE64 != '' }}
+      - name: Prepare upload keystore
         env:
           PIFLASH_STORE_BASE64: ${{ secrets.PIFLASH_STORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.PIFLASH_STORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.PIFLASH_KEY_ALIAS }}
+          SECRET_KEY_PASSWORD: ${{ secrets.PIFLASH_KEY_PASSWORD }}
         run: |
-          echo "$PIFLASH_STORE_BASE64" | base64 -d > "$HOME/piflash-upload.jks"
-          echo "PIFLASH_STORE_FILE=$HOME/piflash-upload.jks" >> "$GITHUB_ENV"
+          set -euo pipefail
+          KS="$HOME/piflash-upload.jks"
+          if [ -n "${PIFLASH_STORE_BASE64:-}" ]; then
+            echo "$PIFLASH_STORE_BASE64" | base64 -d > "$KS"
+            echo "Using PIFLASH_STORE_BASE64 secret"
+            echo "PIFLASH_STORE_PASSWORD=${SECRET_STORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "PIFLASH_KEY_ALIAS=${SECRET_KEY_ALIAS}" >> "$GITHUB_ENV"
+            echo "PIFLASH_KEY_PASSWORD=${SECRET_KEY_PASSWORD}" >> "$GITHUB_ENV"
+          else
+            echo "No upload keystore secret — generating a CI keystore for this run"
+            keytool -genkeypair -noprompt \
+              -keystore "$KS" \
+              -storepass android \
+              -keypass android \
+              -alias piflash \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=PiFlash CI, OU=Leftclick, O=Leftclick AG, L=Basel, C=CH"
+            echo "PIFLASH_STORE_PASSWORD=android" >> "$GITHUB_ENV"
+            echo "PIFLASH_KEY_ALIAS=piflash" >> "$GITHUB_ENV"
+            echo "PIFLASH_KEY_PASSWORD=android" >> "$GITHUB_ENV"
+          fi
+          echo "PIFLASH_STORE_FILE=$KS" >> "$GITHUB_ENV"
 
       - name: Build release bundle
-        env:
-          PIFLASH_STORE_PASSWORD: ${{ secrets.PIFLASH_STORE_PASSWORD }}
-          PIFLASH_KEY_ALIAS: ${{ secrets.PIFLASH_KEY_ALIAS }}
-          PIFLASH_KEY_PASSWORD: ${{ secrets.PIFLASH_KEY_PASSWORD }}
         run: gradle :app:bundleRelease --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
@@ -52,3 +67,15 @@ jobs:
           path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish GitHub Release with AAB
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: aab-v1.0.0-${{ github.run_number }}
+          name: PiFlash 1.0.0 AAB (build ${{ github.run_number }})
+          body: |
+            Play Store upload bundle (signed).
+            If GitHub secrets were not set, this uses a one-off CI keystore.
+            For production uploads, add PIFLASH_STORE_BASE64 and related secrets.
+          files: app/build/outputs/bundle/release/*.aab
+          fail_on_unmatched_files: true
