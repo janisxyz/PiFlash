@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import ch.leftclick.piflash.BuildConfig
 import ch.leftclick.piflash.domain.prefs.Accent
 import ch.leftclick.piflash.domain.prefs.ThemeMode
 import ch.leftclick.piflash.ui.i18n.AppLanguages
@@ -143,6 +144,12 @@ fun SettingsScreen(
                 t.settingsStayOnPhone,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "PiFlash ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
