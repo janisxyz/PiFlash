@@ -37,12 +37,15 @@ class SdCardFlasher(
         var lastBytes = 0L
         var lastSpeed = 0.0
 
+        fun totalNow(): Long =
+            if (estimatedSize > 0) maxOf(estimatedSize, written) else 0L
+
         decompressor.openStream(image).use { stream ->
             emit(
                 FlashProgress(
                     FlashPhase.WRITING,
                     totalBytes = estimatedSize,
-                    message = "Reading image…"
+                    message = if (estimatedSize > 0) "Writing image…" else "Decompressing and writing image…"
                 )
             )
             var lba = 0L
@@ -59,15 +62,6 @@ class SdCardFlasher(
                 if (writer.capacityBytes > 0 && written + aligned > writer.capacityBytes) {
                     throw IllegalStateException("Image is larger than the SD card")
                 }
-                emit(
-                    FlashProgress(
-                        phase = FlashPhase.WRITING,
-                        bytesWritten = written,
-                        totalBytes = estimatedSize,
-                        bytesPerSecond = lastSpeed,
-                        message = "Writing ${formatBytes(written)} @ LBA $lba"
-                    )
-                )
                 writer.writeBlocks(lba, buf, aligned)
                 written += aligned
                 lba += aligned / block
@@ -77,13 +71,18 @@ class SdCardFlasher(
                 lastSpeed = if (dt > 0) (written - lastBytes) / dt else lastSpeed
                 lastEmitNs = now
                 lastBytes = written
+                val total = totalNow()
                 emit(
                     FlashProgress(
                         phase = FlashPhase.WRITING,
                         bytesWritten = written,
-                        totalBytes = estimatedSize,
+                        totalBytes = total,
                         bytesPerSecond = lastSpeed,
-                        message = "Writing image to SD card"
+                        message = if (total > 0) {
+                            "Writing ${formatBytes(written)} / ${formatBytes(total)} @ LBA $lba"
+                        } else {
+                            "Writing ${formatBytes(written)} (decompressing) @ LBA $lba"
+                        }
                     )
                 )
             }
@@ -92,7 +91,7 @@ class SdCardFlasher(
             FlashProgress(
                 FlashPhase.SYNCING,
                 bytesWritten = written,
-                totalBytes = estimatedSize.coerceAtLeast(written),
+                totalBytes = totalNow().coerceAtLeast(written),
                 bytesPerSecond = lastSpeed,
                 message = "Flushing to card…"
             )
@@ -104,7 +103,7 @@ class SdCardFlasher(
             FlashProgress(
                 phase = FlashPhase.CONFIGURING,
                 bytesWritten = written,
-                totalBytes = estimatedSize.coerceAtLeast(written),
+                totalBytes = written,
                 bytesPerSecond = avg,
                 message = "Image written — applying headless config"
             )
