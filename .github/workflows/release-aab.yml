@@ -36,6 +36,12 @@ jobs:
         with:
           gradle-version: "8.7"
 
+      - name: Version for this run
+        run: |
+          echo "PIFLASH_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "PIFLASH_VERSION_NAME=3.1.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "versionName 3.1.${{ github.run_number }} / versionCode ${{ github.run_number }}"
+
       - name: Prepare upload keystore
         env:
           PIFLASH_STORE_BASE64: ${{ secrets.PIFLASH_STORE_BASE64 }}
@@ -80,11 +86,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: aab-v3.1-${{ github.run_number }}
-          name: PiFlash 3.1 AAB (build ${{ github.run_number }})
+          name: PiFlash 3.1.${{ github.run_number }} AAB
           body: |
-            Play Store upload bundle (signed).
+            Play upload bundle (signed).
             Package: piflash.shizoghost.com
-            versionName 3.1 / versionCode 4+
+            versionName 3.1.${{ github.run_number }} / versionCode ${{ github.run_number }}
           files: app/build/outputs/bundle/release/*.aab
           fail_on_unmatched_files: true
 
