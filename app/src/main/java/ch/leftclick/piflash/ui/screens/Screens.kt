@@ -4,6 +4,7 @@ import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -103,6 +105,17 @@ fun DeviceScreen(
     onBack: () -> Unit,
     onContinue: () -> Unit
 ) {
+    fun isSelected(dev: UsbStorageDevice): Boolean {
+        val sel = state.selectedDevice ?: return false
+        return sel.vendorId == dev.vendorId &&
+            sel.productId == dev.productId &&
+            sel.device.deviceName == dev.device.deviceName
+    }
+
+    val canContinue = state.selectedDevice != null &&
+        state.acknowledgedErase &&
+        (state.selectedDevice?.hasPermission == true)
+
     Scaffold(topBar = {
         TopAppBar(title = { Text("SD card") }, navigationIcon = {
             TextButton(onClick = onBack) { Text("Back") }
@@ -116,36 +129,103 @@ fun DeviceScreen(
                 Text("Plug in a USB-C SD reader. Mass-storage devices will appear here.")
             }
             state.devices.forEach { dev ->
-                Card(onClick = { onSelect(dev) }, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Memory, contentDescription = null)
+                val selected = isSelected(dev)
+                Card(
+                    onClick = { onSelect(dev) },
+                    modifier = Modifier.fillMaxWidth(),
+                    border = if (selected) {
+                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                    } else null,
+                    colors = if (selected) {
+                        CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    } else {
+                        CardDefaults.cardColors()
+                    }
+                ) {
+                    Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (selected) Icons.Filled.CheckCircle else Icons.Filled.Memory,
+                            contentDescription = null,
+                            tint = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface
+                        )
                         Column(Modifier.padding(start = 12.dp).weight(1f)) {
                             Text(dev.name, style = MaterialTheme.typography.titleMedium)
-                            val perm = if (dev.hasPermission) "permission granted" else "tap to allow"
+                            val perm = when {
+                                selected && dev.hasPermission -> "Selected · permission granted"
+                                selected && !dev.hasPermission -> "Selected · waiting for permission…"
+                                dev.hasPermission -> "permission granted · tap to select"
+                                else -> "tap to select & allow"
+                            }
                             Text("VID ${dev.vendorId.toString(16)} PID ${dev.productId.toString(16)} · $perm")
                         }
                     }
                 }
             }
+
+            if (state.selectedDevice != null) {
+                Text(
+                    "Selected: ${state.selectedDevice!!.name}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Text("  This will ERASE the entire card.", color = MaterialTheme.colorScheme.error)
+                        Icon(
+                            Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            "  This will ERASE the entire card.",
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = state.acknowledgedErase, onCheckedChange = onAcknowledge)
+                        Checkbox(
+                            checked = state.acknowledgedErase,
+                            onCheckedChange = onAcknowledge
+                        )
                         Text("I understand all data will be destroyed")
                     }
                 }
             }
+
+            state.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error)
+            }
+
+            if (state.selectedDevice != null && state.selectedDevice?.hasPermission != true) {
+                Text(
+                    "USB permission is required. Accept the system prompt, then Continue will unlock.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Button(
                 onClick = onContinue,
-                enabled = state.selectedDevice != null &&
-                    state.acknowledgedErase &&
-                    state.selectedDevice?.hasPermission == true,
+                enabled = canContinue,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Continue") }
+            ) {
+                Text(
+                    when {
+                        state.selectedDevice == null -> "Select a device"
+                        !state.acknowledgedErase -> "Confirm erase to continue"
+                        state.selectedDevice?.hasPermission != true -> "Waiting for USB permission…"
+                        else -> "Continue"
+                    }
+                )
+            }
         }
     }
 }
@@ -239,7 +319,6 @@ fun FlashProgressScreen(
     val p = state.progress
     val view = LocalView.current
 
-    // Keep the screen on while flashing so the phone doesn't sleep mid-write
     DisposableEffect(p.phase) {
         val window = (view.context as? android.app.Activity)?.window
         val busy = p.phase != FlashPhase.SUCCESS &&
@@ -304,7 +383,6 @@ fun FlashProgressScreen(
                 p.phase == FlashPhase.CONFIGURING ||
                 p.phase == FlashPhase.VERIFYING
             ) {
-                // Indeterminate bar so the user always sees activity
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 if (p.bytesWritten > 0) {
                     Text("${formatBytes(p.bytesWritten)} written")

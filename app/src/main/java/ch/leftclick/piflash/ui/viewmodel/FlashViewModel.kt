@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import ch.leftclick.piflash.domain.flash.FlashSession
 import ch.leftclick.piflash.domain.image.ImageAnalyzer
 import ch.leftclick.piflash.domain.image.ImageDecompressor
+import ch.leftclick.piflash.domain.model.FlashError
 import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.FlashProgress
 import ch.leftclick.piflash.domain.model.PiConfiguration
@@ -22,7 +23,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class UiState(
     val image: SelectedImage? = null,
@@ -47,10 +47,33 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             usb.observeDevices().collect { list ->
-                _state.update { it.copy(devices = list) }
+                _state.update { prev ->
+                    // Refresh selected device from the new list (permission may have changed)
+                    val refreshed = prev.selectedDevice?.let { sel ->
+                        list.find { sameDevice(it, sel) }
+                    }
+                    // Auto-select when there is exactly one device and nothing is selected yet
+                    val auto = when {
+                        refreshed != null -> refreshed
+                        prev.selectedDevice == null && list.size == 1 -> list.first()
+                        prev.selectedDevice != null && list.none { sameDevice(it, prev.selectedDevice!!) } -> null
+                        else -> prev.selectedDevice
+                    }
+                    // Request permission for auto-selected device if needed
+                    if (auto != null && !auto.hasPermission && prev.selectedDevice == null && list.size == 1) {
+                        usb.requestPermission(auto.device)
+                    }
+                    prev.copy(
+                        devices = list,
+                        selectedDevice = auto
+                    )
+                }
             }
         }
     }
+
+    private fun sameDevice(a: UsbStorageDevice, b: UsbStorageDevice): Boolean =
+        a.vendorId == b.vendorId && a.productId == b.productId && a.device.deviceName == b.device.deviceName
 
     fun onImagePicked(uri: Uri) {
         runCatching { analyzer.analyze(uri) }
@@ -62,11 +85,29 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
         if (!device.hasPermission) {
             usb.requestPermission(device.device)
         }
-        _state.update { it.copy(selectedDevice = device, acknowledgedErase = false) }
+        _state.update { prev ->
+            val switching = prev.selectedDevice != null && !sameDevice(prev.selectedDevice!!, device)
+            prev.copy(
+                selectedDevice = device,
+                // Only clear the erase acknowledgement when switching to a different device
+                acknowledgedErase = if (switching) false else prev.acknowledgedErase,
+                error = null
+            )
+        }
     }
 
     fun acknowledgeErase(value: Boolean) {
-        _state.update { it.copy(acknowledgedErase = value) }
+        _state.update { prev ->
+            // If user ticks the box and there is exactly one device, select it automatically
+            val selected = prev.selectedDevice
+                ?: prev.devices.singleOrNull()?.also { dev ->
+                    if (!dev.hasPermission) usb.requestPermission(dev.device)
+                }
+            prev.copy(
+                acknowledgedErase = value,
+                selectedDevice = selected ?: prev.selectedDevice
+            )
+        }
     }
 
     fun updateConfig(transform: (PiConfiguration) -> PiConfiguration) {
@@ -81,7 +122,11 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(error = "Confirm that the SD card will be erased") }
             return
         }
-        // Show progress UI immediately so the screen never looks frozen
+        if (!device.hasPermission) {
+            usb.requestPermission(device.device)
+            _state.update { it.copy(error = "Grant USB permission, then try again") }
+            return
+        }
         _state.update {
             it.copy(
                 progress = FlashProgress(
@@ -92,7 +137,6 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         flashJob?.cancel()
-        // Heavy USB I/O + decompression MUST run off the main thread
         flashJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 session.run(image, device.device, s.config).collect { p ->
@@ -105,10 +149,7 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
                         progress = FlashProgress(
                             phase = FlashPhase.FAILED,
                             message = t.message ?: "Flash failed",
-                            error = ch.leftclick.piflash.domain.model.FlashError(
-                                t.message ?: t.javaClass.simpleName,
-                                t
-                            )
+                            error = FlashError(t.message ?: t.javaClass.simpleName, t)
                         ),
                         error = t.message
                     )
