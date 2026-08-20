@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -36,6 +37,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.PiConfiguration
@@ -96,9 +99,11 @@ fun DeviceScreen(
     onBack: () -> Unit,
     onContinue: () -> Unit
 ) {
-    Scaffold(topBar = { TopAppBar(title = { Text("SD card") }, navigationIcon = {
-        TextButton(onClick = onBack) { Text("Back") }
-    }) }) { pad ->
+    Scaffold(topBar = {
+        TopAppBar(title = { Text("SD card") }, navigationIcon = {
+            TextButton(onClick = onBack) { Text("Back") }
+        })
+    }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -112,10 +117,8 @@ fun DeviceScreen(
                         Icon(Icons.Filled.Memory, contentDescription = null)
                         Column(Modifier.padding(start = 12.dp).weight(1f)) {
                             Text(dev.name, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "VID ${dev.vendorId.toString(16)} PID ${dev.productId.toString(16)}" +
-                                    if (dev.hasPermission) " · permission granted" else " · tap to allow"
-                            )
+                            val perm = if (dev.hasPermission) "permission granted" else "tap to allow"
+                            Text("VID ${dev.vendorId.toString(16)} PID ${dev.productId.toString(16)} · $perm")
                         }
                     }
                 }
@@ -134,8 +137,9 @@ fun DeviceScreen(
             }
             Button(
                 onClick = onContinue,
-                enabled = state.selectedDevice != null && state.acknowledgedErase &&
-                    (state.selectedDevice?.hasPermission == true),
+                enabled = state.selectedDevice != null &&
+                    state.acknowledgedErase &&
+                    state.selectedDevice?.hasPermission == true,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Continue") }
         }
@@ -151,14 +155,117 @@ fun ConfigScreen(
     onFlash: () -> Unit
 ) {
     val c = state.config
-    Scaffold(topBar = { TopAppBar(title = { Text("Headless setup") }, navigationIcon = {
-        TextButton(onClick = onBack) { Text("Back") }
-    }) }) { pad ->
+    fun set(block: PiConfiguration.() -> PiConfiguration) = onChange { it.block() }
+    val canFlash = c.username.isNotBlank() && (c.password.isNotBlank() || c.sshPublicKey.isNotBlank())
+    Scaffold(topBar = {
+        TopAppBar(title = { Text("Headless setup") }, navigationIcon = {
+            TextButton(onClick = onBack) { Text("Back") }
+        })
+    }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            OutlinedTextField(c.hostname, { onChange { it.copy(hostname = it2(it, it.hostname, it2 = null); } }, label = { Text("Hostname") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.hostname, { v -> set { copy(hostname = v) } }, label = { Text("Hostname") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.username, { v -> set { copy(username = v) } }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                c.password,
+                { v -> set { copy(password = v) } },
+                label = { Text("Password") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text("SSH")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = c.enableSsh, onClick = { set { copy(enableSsh = !enableSsh) } }, label = { Text("Enable SSH") })
+                FilterChip(selected = c.sshAuthMode == SshAuthMode.PASSWORD, onClick = { set { copy(sshAuthMode = SshAuthMode.PASSWORD) } }, label = { Text("Password") })
+                FilterChip(selected = c.sshAuthMode == SshAuthMode.KEY, onClick = { set { copy(sshAuthMode = SshAuthMode.KEY) } }, label = { Text("Key") })
+                FilterChip(selected = c.sshAuthMode == SshAuthMode.BOTH, onClick = { set { copy(sshAuthMode = SshAuthMode.BOTH) } }, label = { Text("Both") })
+            }
+            OutlinedTextField(c.sshPublicKey, { v -> set { copy(sshPublicKey = v) } }, label = { Text("SSH public key") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            Text("Wi-Fi")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = c.enableWifi, onCheckedChange = { v -> set { copy(enableWifi = v) } })
+                Text("Configure Wi-Fi")
+            }
+            OutlinedTextField(c.wifiSsid, { v -> set { copy(wifiSsid = v) } }, label = { Text("SSID") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                c.wifiPassword,
+                { v -> set { copy(wifiPassword = v) } },
+                label = { Text("Wi-Fi password") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA2, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA2) } }, label = { Text("WPA2") })
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA3, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA3) } }, label = { Text("WPA3") })
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.OPEN, onClick = { set { copy(wifiSecurity = WifiSecurity.OPEN) } }, label = { Text("Open") })
+            }
+            OutlinedTextField(c.country, { v -> set { copy(country = v.uppercase()) } }, label = { Text("Country") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.timezone, { v -> set { copy(timezone = v) } }, label = { Text("Timezone") }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onFlash, enabled = canFlash, modifier = Modifier.fillMaxWidth()) {
+                Text("Flash SD card")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FlashProgressScreen(
+    state: UiState,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onDone: () -> Unit
+) {
+    val p = state.progress
+    LaunchedEffect(p.phase) {
+        if (p.phase == FlashPhase.SUCCESS) onDone()
+    }
+    Scaffold(topBar = { TopAppBar(title = { Text("Flashing") }) }) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(p.phase.name, style = MaterialTheme.typography.titleLarge)
+            Text(p.message)
+            if (p.totalBytes > 0) {
+                LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.fillMaxWidth())
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            Text("${formatBytes(p.bytesWritten)} / ${formatBytes(p.totalBytes)}")
+            Text("${formatSpeed(p.bytesPerSecond)} · ETA ${formatEta(p.totalBytes - p.bytesWritten, p.bytesPerSecond)}")
+            p.error?.let { Text(it.message, color = MaterialTheme.colorScheme.error) }
+            Spacer(Modifier.weight(1f))
+            when (p.phase) {
+                FlashPhase.FAILED, FlashPhase.CANCELLED -> OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                FlashPhase.SUCCESS -> Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+                else -> OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SuccessScreen(state: UiState, onHome: () -> Unit) {
+    val s = state.progress.summary
+    Scaffold(topBar = { TopAppBar(title = { Text("Ready") }) }) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Text("Card flashed", style = MaterialTheme.typography.headlineSmall)
+            Text("Hostname: ${s?.hostname ?: state.config.hostname}")
+            Text(s?.imageName ?: state.image?.displayName ?: "")
+            Text("Insert the card into the Pi. First boot may take a few minutes.")
+            Spacer(Modifier.weight(1f))
+            Button(onClick = onHome, modifier = Modifier.fillMaxWidth()) { Text("Flash another") }
         }
     }
 }
