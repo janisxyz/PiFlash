@@ -1,6 +1,7 @@
 package ch.leftclick.piflash.ui.screens
 
 import android.net.Uri
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +35,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -212,6 +216,18 @@ fun ConfigScreen(
     }
 }
 
+private fun phaseTitle(phase: FlashPhase): String = when (phase) {
+    FlashPhase.IDLE -> "Ready"
+    FlashPhase.PREPARING -> "Preparing…"
+    FlashPhase.WRITING -> "Writing image…"
+    FlashPhase.VERIFYING -> "Verifying…"
+    FlashPhase.CONFIGURING -> "Writing config…"
+    FlashPhase.SYNCING -> "Flushing…"
+    FlashPhase.SUCCESS -> "Done"
+    FlashPhase.FAILED -> "Failed"
+    FlashPhase.CANCELLED -> "Cancelled"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FlashProgressScreen(
@@ -221,29 +237,104 @@ fun FlashProgressScreen(
     onDone: () -> Unit
 ) {
     val p = state.progress
+    val view = LocalView.current
+
+    // Keep the screen on while flashing so the phone doesn't sleep mid-write
+    DisposableEffect(p.phase) {
+        val window = (view.context as? android.app.Activity)?.window
+        val busy = p.phase != FlashPhase.SUCCESS &&
+            p.phase != FlashPhase.FAILED &&
+            p.phase != FlashPhase.CANCELLED &&
+            p.phase != FlashPhase.IDLE
+        if (busy) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     LaunchedEffect(p.phase) {
         if (p.phase == FlashPhase.SUCCESS) onDone()
     }
+
+    val percent = if (p.totalBytes > 0) {
+        ((p.bytesWritten * 100) / p.totalBytes).toInt().coerceIn(0, 100)
+    } else null
+
     Scaffold(topBar = { TopAppBar(title = { Text("Flashing") }) }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(p.phase.name, style = MaterialTheme.typography.titleLarge)
-            Text(p.message)
-            if (p.totalBytes > 0) {
-                LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.fillMaxWidth())
-            } else {
+            Text(
+                phaseTitle(p.phase),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                p.message.ifBlank {
+                    when (p.phase) {
+                        FlashPhase.PREPARING -> "Opening USB device and image…"
+                        FlashPhase.WRITING -> "Writing image to the SD card…"
+                        FlashPhase.SYNCING -> "Flushing data to the card…"
+                        FlashPhase.CONFIGURING -> "Writing headless config files…"
+                        else -> ""
+                    }
+                },
+                style = MaterialTheme.typography.bodyLarge
+            )
+
+            if (p.totalBytes > 0 && p.phase == FlashPhase.WRITING) {
+                LinearProgressIndicator(
+                    progress = { p.fraction },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "$percent%  ·  ${formatBytes(p.bytesWritten)} / ${formatBytes(p.totalBytes)}",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "${formatSpeed(p.bytesPerSecond)}  ·  ETA ${formatEta(p.totalBytes - p.bytesWritten, p.bytesPerSecond)}"
+                )
+            } else if (
+                p.phase == FlashPhase.PREPARING ||
+                p.phase == FlashPhase.WRITING ||
+                p.phase == FlashPhase.SYNCING ||
+                p.phase == FlashPhase.CONFIGURING ||
+                p.phase == FlashPhase.VERIFYING
+            ) {
+                // Indeterminate bar so the user always sees activity
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                if (p.bytesWritten > 0) {
+                    Text("${formatBytes(p.bytesWritten)} written")
+                }
+            } else if (p.phase == FlashPhase.SUCCESS) {
+                LinearProgressIndicator(
+                    progress = { 1f },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-            Text("${formatBytes(p.bytesWritten)} / ${formatBytes(p.totalBytes)}")
-            Text("${formatSpeed(p.bytesPerSecond)} · ETA ${formatEta(p.totalBytes - p.bytesWritten, p.bytesPerSecond)}")
-            p.error?.let { Text(it.message, color = MaterialTheme.colorScheme.error) }
+
+            p.error?.let {
+                Text(it.message, color = MaterialTheme.colorScheme.error)
+            }
+
             Spacer(Modifier.weight(1f))
+
             when (p.phase) {
-                FlashPhase.FAILED, FlashPhase.CANCELLED -> OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Back") }
-                FlashPhase.SUCCESS -> Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") }
-                else -> OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+                FlashPhase.FAILED, FlashPhase.CANCELLED ->
+                    OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                        Text("Back")
+                    }
+                FlashPhase.SUCCESS ->
+                    Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
+                        Text("Done")
+                    }
+                else ->
+                    OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                        Text("Cancel")
+                    }
             }
         }
     }

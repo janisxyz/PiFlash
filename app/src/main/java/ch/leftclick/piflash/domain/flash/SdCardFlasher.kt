@@ -5,7 +5,6 @@ import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.FlashProgress
 import ch.leftclick.piflash.domain.model.SelectedImage
 import ch.leftclick.piflash.domain.usb.BlockDeviceWriter
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -20,16 +19,30 @@ class SdCardFlasher(
         writer: BlockDeviceWriter,
         estimatedSize: Long
     ): Flow<FlashProgress> = flow {
-        emit(FlashProgress(FlashPhase.PREPARING, totalBytes = estimatedSize, message = "Opening image"))
+        emit(
+            FlashProgress(
+                FlashPhase.PREPARING,
+                totalBytes = estimatedSize,
+                message = "Opening image"
+            )
+        )
         val block = writer.blockSize
-        val buf = ByteArray(block * 128) // 64 KiB
+        // Larger buffer = fewer USB round-trips, still report progress often enough
+        val buf = ByteArray(block * 256) // 128 KiB
         var written = 0L
         val start = System.nanoTime()
-        var lastTick = start
+        var lastEmitNs = start
         var lastBytes = 0L
+        var lastSpeed = 0.0
 
         decompressor.openStream(image).use { stream ->
-            emit(FlashProgress(FlashPhase.WRITING, totalBytes = estimatedSize, message = "Writing image"))
+            emit(
+                FlashProgress(
+                    FlashPhase.WRITING,
+                    totalBytes = estimatedSize,
+                    message = "Writing image to SD card"
+                )
+            )
             var lba = 0L
             while (true) {
                 currentCoroutineContext().ensureActive()
@@ -47,36 +60,45 @@ class SdCardFlasher(
                 writer.writeBlocks(lba, buf, aligned)
                 written += aligned
                 lba += aligned / block
+
                 val now = System.nanoTime()
-                val dt = (now - lastTick) / 1_000_000_000.0
-                val speed = if (dt > 0.25) {
-                    val s = (written - lastBytes) / dt
-                    lastTick = now
+                // Throttle UI updates to ~4/sec so the main thread stays responsive
+                val dt = (now - lastEmitNs) / 1_000_000_000.0
+                if (dt >= 0.25 || written == aligned) {
+                    lastSpeed = if (dt > 0) (written - lastBytes) / dt else lastSpeed
+                    lastEmitNs = now
                     lastBytes = written
-                    s
-                } else 0.0
-                emit(
-                    FlashProgress(
-                        phase = FlashPhase.WRITING,
-                        bytesWritten = written,
-                        totalBytes = estimatedSize,
-                        bytesPerSecond = speed,
-                        message = "Writing"
+                    emit(
+                        FlashProgress(
+                            phase = FlashPhase.WRITING,
+                            bytesWritten = written,
+                            totalBytes = estimatedSize,
+                            bytesPerSecond = lastSpeed,
+                            message = "Writing image to SD card"
+                        )
                     )
-                )
+                }
             }
         }
-        emit(FlashProgress(FlashPhase.SYNCING, bytesWritten = written, totalBytes = estimatedSize, message = "Flushing"))
+        emit(
+            FlashProgress(
+                FlashPhase.SYNCING,
+                bytesWritten = written,
+                totalBytes = estimatedSize.coerceAtLeast(written),
+                bytesPerSecond = lastSpeed,
+                message = "Flushing to card…"
+            )
+        )
         writer.synchronizeCache()
-        val elapsed = (System.nanoTime() - start) / 1_000_000.0
-        val avg = if (elapsed > 0) written / (elapsed / 1000.0) else 0.0
+        val elapsed = (System.nanoTime() - start) / 1_000_000_000.0
+        val avg = if (elapsed > 0) written / elapsed else 0.0
         emit(
             FlashProgress(
                 phase = FlashPhase.CONFIGURING,
                 bytesWritten = written,
                 totalBytes = estimatedSize.coerceAtLeast(written),
                 bytesPerSecond = avg,
-                message = "Image written"
+                message = "Image written — applying headless config"
             )
         )
     }

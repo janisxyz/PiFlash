@@ -15,12 +15,14 @@ import ch.leftclick.piflash.domain.model.PiConfiguration
 import ch.leftclick.piflash.domain.model.SelectedImage
 import ch.leftclick.piflash.domain.model.UsbStorageDevice
 import ch.leftclick.piflash.domain.usb.UsbStorageManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class UiState(
     val image: SelectedImage? = null,
@@ -79,17 +81,52 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(error = "Confirm that the SD card will be erased") }
             return
         }
+        // Show progress UI immediately so the screen never looks frozen
+        _state.update {
+            it.copy(
+                progress = FlashProgress(
+                    phase = FlashPhase.PREPARING,
+                    message = "Starting…"
+                ),
+                error = null
+            )
+        }
         flashJob?.cancel()
-        flashJob = viewModelScope.launch {
-            session.run(image, device.device, s.config).collect { p ->
-                _state.update { it.copy(progress = p, error = p.error?.message) }
+        // Heavy USB I/O + decompression MUST run off the main thread
+        flashJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                session.run(image, device.device, s.config).collect { p ->
+                    _state.update { it.copy(progress = p, error = p.error?.message) }
+                }
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                _state.update {
+                    it.copy(
+                        progress = FlashProgress(
+                            phase = FlashPhase.FAILED,
+                            message = t.message ?: "Flash failed",
+                            error = ch.leftclick.piflash.domain.model.FlashError(
+                                t.message ?: t.javaClass.simpleName,
+                                t
+                            )
+                        ),
+                        error = t.message
+                    )
+                }
             }
         }
     }
 
     fun cancelFlash() {
         flashJob?.cancel()
-        _state.update { it.copy(progress = FlashProgress(FlashPhase.CANCELLED, message = "Cancelled")) }
+        _state.update {
+            it.copy(
+                progress = FlashProgress(
+                    phase = FlashPhase.CANCELLED,
+                    message = "Cancelled"
+                )
+            )
+        }
     }
 
     fun reset() {
