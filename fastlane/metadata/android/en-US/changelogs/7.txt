@@ -1,0 +1,3 @@
+Fix flashing on typical USB SD readers: recover SCSI CSW failures with REQUEST SENSE, Bulk-Only reset, and TEST UNIT READY instead of aborting on the first status=1.
+
+Also: correct SHA-512 crypt for Raspberry Pi userconf, real FAT16/32 allocation for first-boot files, cmdline.txt firstrun hook, official .zip images, unique USB permission intents, and a single error on the Failed screen with Retry.
