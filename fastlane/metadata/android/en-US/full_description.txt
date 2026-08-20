@@ -8,6 +8,8 @@ What you can do
 • Configure Wi-Fi (WPA2 / WPA3 / open, hidden SSID, country code)
 • Set timezone, locale, and keyboard layout
 • Start from templates (Home lab, Coolify host, Headless LAN) and save named presets on the phone
+• Edit templates and presets without an SD card connected
+• Switch UI language and theme color (stays on the phone)
 • Optionally run apt update/upgrade or install Coolify on first boot
 • Works fully offline. Nothing is uploaded.
 

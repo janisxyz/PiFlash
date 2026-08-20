@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.SdCard
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -65,6 +66,7 @@ import ch.leftclick.piflash.domain.model.WifiSecurity
 import ch.leftclick.piflash.domain.model.formatBytes
 import ch.leftclick.piflash.domain.model.formatEta
 import ch.leftclick.piflash.domain.model.formatSpeed
+import ch.leftclick.piflash.ui.i18n.LocalUiText
 import ch.leftclick.piflash.ui.viewmodel.UiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,21 +74,33 @@ import ch.leftclick.piflash.ui.viewmodel.UiState
 fun HomeScreen(
     state: UiState,
     onImagePicked: (Uri) -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onOpenTemplates: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
+    val t = LocalUiText.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImagePicked)
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("PiFlash") }) }) { pad ->
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text(t.appName) },
+            actions = {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = t.settings)
+                }
+            }
+        )
+    }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Flash Raspberry Pi OS from your phone. Select a .img / .img.xz / .img.gz file.")
+            Text(t.homeIntro)
             Button(onClick = { picker.launch(arrayOf("*/*")) }) {
                 Icon(Icons.Filled.SdCard, contentDescription = null)
                 Spacer(Modifier.padding(4.dp))
-                Text("Choose image")
+                Text(t.chooseImage)
             }
             state.image?.let { img ->
                 Card(Modifier.fillMaxWidth()) {
@@ -96,13 +110,16 @@ fun HomeScreen(
                     }
                 }
             }
+            OutlinedButton(onClick = onOpenTemplates, modifier = Modifier.fillMaxWidth()) {
+                Text(t.editTemplates)
+            }
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = onContinue,
                 enabled = state.image != null,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Continue") }
+            ) { Text(t.continueLabel) }
         }
     }
 }
@@ -116,6 +133,7 @@ fun DeviceScreen(
     onBack: () -> Unit,
     onContinue: () -> Unit
 ) {
+    val t = LocalUiText.current
     fun isSelected(dev: UsbStorageDevice): Boolean {
         val sel = state.selectedDevice ?: return false
         return sel.vendorId == dev.vendorId &&
@@ -128,8 +146,8 @@ fun DeviceScreen(
         (state.selectedDevice?.hasPermission == true)
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("SD card") }, navigationIcon = {
-            TextButton(onClick = onBack) { Text("Back") }
+        TopAppBar(title = { Text(t.sdCard) }, navigationIcon = {
+            TextButton(onClick = onBack) { Text(t.back) }
         })
     }) { pad ->
         Column(
@@ -137,7 +155,7 @@ fun DeviceScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (state.devices.isEmpty()) {
-                Text("Plug in a USB-C SD reader. Mass-storage devices will appear here.")
+                Text(t.plugInReader)
             }
             state.devices.forEach { dev ->
                 val selected = isSelected(dev)
@@ -168,10 +186,10 @@ fun DeviceScreen(
                         Column(Modifier.padding(start = 12.dp).weight(1f)) {
                             Text(dev.name, style = MaterialTheme.typography.titleMedium)
                             val perm = when {
-                                selected && dev.hasPermission -> "Selected · permission granted"
-                                selected && !dev.hasPermission -> "Selected · waiting for permission…"
-                                dev.hasPermission -> "permission granted · tap to select"
-                                else -> "tap to select & allow"
+                                selected && dev.hasPermission -> t.selectedPermissionGranted
+                                selected && !dev.hasPermission -> t.selectedWaitingPermission
+                                dev.hasPermission -> t.permissionGrantedTap
+                                else -> t.tapToSelectAllow
                             }
                             Text("VID ${dev.vendorId.toString(16)} PID ${dev.productId.toString(16)} · $perm")
                         }
@@ -181,7 +199,7 @@ fun DeviceScreen(
 
             if (state.selectedDevice != null) {
                 Text(
-                    "Selected: ${state.selectedDevice!!.name}",
+                    "${t.selectedPrefix} ${state.selectedDevice!!.name}",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.primary
@@ -197,7 +215,7 @@ fun DeviceScreen(
                             tint = MaterialTheme.colorScheme.error
                         )
                         Text(
-                            "  This will ERASE the entire card.",
+                            "  ${t.eraseWarning}",
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -206,7 +224,7 @@ fun DeviceScreen(
                             checked = state.acknowledgedErase,
                             onCheckedChange = onAcknowledge
                         )
-                        Text("I understand all data will be destroyed")
+                        Text(t.eraseAcknowledge)
                     }
                 }
             }
@@ -217,7 +235,7 @@ fun DeviceScreen(
 
             if (state.selectedDevice != null && state.selectedDevice?.hasPermission != true) {
                 Text(
-                    "USB permission is required. Accept the system prompt, then Continue will unlock.",
+                    t.usbPermissionHint,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -230,10 +248,10 @@ fun DeviceScreen(
             ) {
                 Text(
                     when {
-                        state.selectedDevice == null -> "Select a device"
-                        !state.acknowledgedErase -> "Confirm erase to continue"
-                        state.selectedDevice?.hasPermission != true -> "Waiting for USB permission…"
-                        else -> "Continue"
+                        state.selectedDevice == null -> t.selectADevice
+                        !state.acknowledgedErase -> t.confirmEraseToContinue
+                        state.selectedDevice?.hasPermission != true -> t.waitingUsbPermission
+                        else -> t.continueLabel
                     }
                 )
             }
@@ -252,25 +270,39 @@ fun ConfigScreen(
     onBack: () -> Unit,
     onFlash: () -> Unit
 ) {
+    val t = LocalUiText.current
     val c = state.config
     fun set(block: PiConfiguration.() -> PiConfiguration) = onChange { it.block() }
-    val canFlash = c.username.isNotBlank() && (c.password.isNotBlank() || c.sshPublicKey.isNotBlank())
+    val credentialsOk = c.username.isNotBlank() && (c.password.isNotBlank() || c.sshPublicKey.isNotBlank())
+    val hasImage = state.image != null
+    val hasDevice = state.selectedDevice != null && state.selectedDevice?.hasPermission == true
+    val canFlash = credentialsOk && hasImage && hasDevice && state.acknowledgedErase
     var showSave by remember { mutableStateOf(false) }
     var saveName by remember { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf<ConfigPreset?>(null) }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Headless setup") }, navigationIcon = {
-            TextButton(onClick = onBack) { Text("Back") }
+        TopAppBar(title = { Text(t.headlessSetup) }, navigationIcon = {
+            TextButton(onClick = onBack) { Text(t.back) }
         })
     }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Templates", style = MaterialTheme.typography.titleSmall)
+            if (!hasDevice) {
+                Card(Modifier.fillMaxWidth()) {
+                    Text(
+                        t.noCardBanner,
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            Text(t.templates, style = MaterialTheme.typography.titleSmall)
             Text(
-                "Start from a template, then save your own presets for the next card.",
+                t.templatesHint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -282,15 +314,15 @@ fun ConfigScreen(
                     FilterChip(
                         selected = state.activePresetId == preset.id,
                         onClick = { onApplyPreset(preset) },
-                        label = { Text(preset.name) }
+                        label = { Text(t.presetLabel(preset)) }
                     )
                 }
             }
 
-            Text("Your presets", style = MaterialTheme.typography.titleSmall)
+            Text(t.yourPresets, style = MaterialTheme.typography.titleSmall)
             if (state.presets.isEmpty()) {
                 Text(
-                    "None yet. Fill the form, then save it.",
+                    t.noPresetsYet,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -312,7 +344,7 @@ fun ConfigScreen(
                                 ) {
                                     Icon(
                                         Icons.Filled.Close,
-                                        contentDescription = "Delete ${preset.name}",
+                                        contentDescription = "${t.delete} ${preset.name}",
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -331,64 +363,73 @@ fun ConfigScreen(
             ) {
                 Text(
                     if (state.activePresetId != null && state.presets.any { it.id == state.activePresetId }) {
-                        "Update / save as preset"
+                        t.updateOrSavePreset
                     } else {
-                        "Save as preset"
+                        t.saveAsPreset
                     }
                 )
             }
 
-            OutlinedTextField(c.hostname, { v -> set { copy(hostname = v) } }, label = { Text("Hostname") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(c.username, { v -> set { copy(username = v) } }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.hostname, { v -> set { copy(hostname = v) } }, label = { Text(t.hostname) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.username, { v -> set { copy(username = v) } }, label = { Text(t.username) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
                 c.password,
                 { v -> set { copy(password = v) } },
-                label = { Text("Password") },
+                label = { Text(t.password) },
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth()
             )
-            Text("SSH")
+            Text(t.ssh)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = c.enableSsh, onClick = { set { copy(enableSsh = !enableSsh) } }, label = { Text("Enable SSH") })
-                FilterChip(selected = c.sshAuthMode == SshAuthMode.PASSWORD, onClick = { set { copy(sshAuthMode = SshAuthMode.PASSWORD) } }, label = { Text("Password") })
-                FilterChip(selected = c.sshAuthMode == SshAuthMode.KEY, onClick = { set { copy(sshAuthMode = SshAuthMode.KEY) } }, label = { Text("Key") })
-                FilterChip(selected = c.sshAuthMode == SshAuthMode.BOTH, onClick = { set { copy(sshAuthMode = SshAuthMode.BOTH) } }, label = { Text("Both") })
+                FilterChip(selected = c.enableSsh, onClick = { set { copy(enableSsh = !enableSsh) } }, label = { Text(t.enableSsh) })
+                FilterChip(selected = c.sshAuthMode == SshAuthMode.PASSWORD, onClick = { set { copy(sshAuthMode = SshAuthMode.PASSWORD) } }, label = { Text(t.sshPassword) })
+                FilterChip(selected = c.sshAuthMode == SshAuthMode.KEY, onClick = { set { copy(sshAuthMode = SshAuthMode.KEY) } }, label = { Text(t.sshKey) })
+                FilterChip(selected = c.sshAuthMode == SshAuthMode.BOTH, onClick = { set { copy(sshAuthMode = SshAuthMode.BOTH) } }, label = { Text(t.sshBoth) })
             }
-            OutlinedTextField(c.sshPublicKey, { v -> set { copy(sshPublicKey = v) } }, label = { Text("SSH public key") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-            Text("Wi-Fi")
+            OutlinedTextField(c.sshPublicKey, { v -> set { copy(sshPublicKey = v) } }, label = { Text(t.sshPublicKey) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            Text(t.wifi)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = c.enableWifi, onCheckedChange = { v -> set { copy(enableWifi = v) } })
-                Text("Configure Wi-Fi")
+                Text(t.configureWifi)
             }
-            OutlinedTextField(c.wifiSsid, { v -> set { copy(wifiSsid = v) } }, label = { Text("SSID") }, modifier = Modifier.fillMaxWidth(), enabled = c.enableWifi)
+            OutlinedTextField(c.wifiSsid, { v -> set { copy(wifiSsid = v) } }, label = { Text(t.ssid) }, modifier = Modifier.fillMaxWidth(), enabled = c.enableWifi)
             OutlinedTextField(
                 c.wifiPassword,
                 { v -> set { copy(wifiPassword = v) } },
-                label = { Text("Wi-Fi password") },
+                label = { Text(t.wifiPassword) },
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 enabled = c.enableWifi
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA2, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA2) } }, label = { Text("WPA2") }, enabled = c.enableWifi)
-                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA3, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA3) } }, label = { Text("WPA3") }, enabled = c.enableWifi)
-                FilterChip(selected = c.wifiSecurity == WifiSecurity.OPEN, onClick = { set { copy(wifiSecurity = WifiSecurity.OPEN) } }, label = { Text("Open") }, enabled = c.enableWifi)
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA2, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA2) } }, label = { Text(t.wpa2) }, enabled = c.enableWifi)
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA3, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA3) } }, label = { Text(t.wpa3) }, enabled = c.enableWifi)
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.OPEN, onClick = { set { copy(wifiSecurity = WifiSecurity.OPEN) } }, label = { Text(t.openWifi) }, enabled = c.enableWifi)
             }
-            OutlinedTextField(c.country, { v -> set { copy(country = v.uppercase()) } }, label = { Text("Country") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(c.timezone, { v -> set { copy(timezone = v) } }, label = { Text("Timezone") }, modifier = Modifier.fillMaxWidth())
-            Text("First boot")
+            OutlinedTextField(c.country, { v -> set { copy(country = v.uppercase()) } }, label = { Text(t.country) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.timezone, { v -> set { copy(timezone = v) } }, label = { Text(t.timezone) }, modifier = Modifier.fillMaxWidth())
+            Text(t.firstBoot)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = c.aptUpdateUpgrade, onCheckedChange = { v -> set { copy(aptUpdateUpgrade = v) } })
-                Text("apt update && upgrade after network is up")
+                Text(t.aptUpdateUpgrade)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = c.installCoolify, onCheckedChange = { v -> set { copy(installCoolify = v) } })
-                Text("Install Coolify (64-bit OS, needs internet)")
+                Text(t.installCoolify)
             }
             Spacer(Modifier.height(8.dp))
             Button(onClick = onFlash, enabled = canFlash, modifier = Modifier.fillMaxWidth()) {
-                Text("Flash SD card")
+                Text(
+                    when {
+                        !credentialsOk -> t.flashNeedsCredentials
+                        !hasImage && !hasDevice -> t.flashNeedsImageAndCard
+                        !hasImage -> t.flashNeedsImage
+                        !hasDevice -> t.flashNeedsCard
+                        !state.acknowledgedErase -> t.flashNeedsAck
+                        else -> t.flashSdCard
+                    }
+                )
             }
         }
     }
@@ -396,17 +437,17 @@ fun ConfigScreen(
     if (showSave) {
         AlertDialog(
             onDismissRequest = { showSave = false },
-            title = { Text("Save preset") },
+            title = { Text(t.savePresetTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Stored on this phone only. Same name overwrites.",
+                        t.savePresetHint,
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedTextField(
                         value = saveName,
                         onValueChange = { saveName = it },
-                        label = { Text("Name") },
+                        label = { Text(t.name) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -419,10 +460,10 @@ fun ConfigScreen(
                         showSave = false
                     },
                     enabled = saveName.isNotBlank()
-                ) { Text("Save") }
+                ) { Text(t.save) }
             },
             dismissButton = {
-                TextButton(onClick = { showSave = false }) { Text("Cancel") }
+                TextButton(onClick = { showSave = false }) { Text(t.cancel) }
             }
         )
     }
@@ -430,31 +471,19 @@ fun ConfigScreen(
     pendingDelete?.let { preset ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete \"${preset.name}\"?") },
-            text = { Text("This only removes the saved preset on this phone.") },
+            title = { Text(t.deletePresetTitle.format(preset.name)) },
+            text = { Text(t.deletePresetBody) },
             confirmButton = {
                 TextButton(onClick = {
                     onDeletePreset(preset.id)
                     pendingDelete = null
-                }) { Text("Delete") }
+                }) { Text(t.delete) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }) { Text(t.cancel) }
             }
         )
     }
-}
-
-private fun phaseTitle(phase: FlashPhase): String = when (phase) {
-    FlashPhase.IDLE -> "Ready"
-    FlashPhase.PREPARING -> "Preparing…"
-    FlashPhase.WRITING -> "Writing image…"
-    FlashPhase.VERIFYING -> "Verifying…"
-    FlashPhase.CONFIGURING -> "Writing config…"
-    FlashPhase.SYNCING -> "Flushing…"
-    FlashPhase.SUCCESS -> "Done"
-    FlashPhase.FAILED -> "Failed"
-    FlashPhase.CANCELLED -> "Cancelled"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -465,6 +494,7 @@ fun FlashProgressScreen(
     onRetry: () -> Unit,
     onDone: () -> Unit
 ) {
+    val t = LocalUiText.current
     val p = state.progress
     val view = LocalView.current
 
@@ -490,23 +520,23 @@ fun FlashProgressScreen(
         ((p.bytesWritten * 100) / p.totalBytes).toInt().coerceIn(0, 100)
     } else null
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Flashing") }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(t.flashing) }) }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                phaseTitle(p.phase),
+                t.phaseTitle(p.phase),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 p.message.ifBlank {
                     when (p.phase) {
-                        FlashPhase.PREPARING -> "Opening USB device and image…"
-                        FlashPhase.WRITING -> "Writing image to the SD card…"
-                        FlashPhase.SYNCING -> "Flushing data to the card…"
-                        FlashPhase.CONFIGURING -> "Writing headless config files…"
+                        FlashPhase.PREPARING -> t.msgPreparing
+                        FlashPhase.WRITING -> t.msgWriting
+                        FlashPhase.SYNCING -> t.msgSyncing
+                        FlashPhase.CONFIGURING -> t.msgConfiguring
                         else -> ""
                     }
                 },
@@ -552,15 +582,15 @@ fun FlashProgressScreen(
             when (p.phase) {
                 FlashPhase.FAILED, FlashPhase.CANCELLED ->
                     OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                        Text("Back")
+                        Text(t.back)
                     }
                 FlashPhase.SUCCESS ->
                     Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
-                        Text("Done")
+                        Text(t.done)
                     }
                 else ->
                     OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-                        Text("Cancel")
+                        Text(t.cancel)
                     }
             }
         }
@@ -570,20 +600,21 @@ fun FlashProgressScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SuccessScreen(state: UiState, onHome: () -> Unit) {
+    val t = LocalUiText.current
     val s = state.progress.summary
-    Scaffold(topBar = { TopAppBar(title = { Text("Ready") }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(t.readyTitle) }) }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text("Card flashed", style = MaterialTheme.typography.headlineSmall)
-            Text("Hostname: ${s?.hostname ?: state.config.hostname}")
+            Text(t.cardFlashed, style = MaterialTheme.typography.headlineSmall)
+            Text("${t.hostnameLabel} ${s?.hostname ?: state.config.hostname}")
             Text(s?.imageName ?: state.image?.displayName ?: "")
-            Text("Insert the card into the Pi. First boot may take a few minutes.")
+            Text(t.insertCard)
             Spacer(Modifier.weight(1f))
-            Button(onClick = onHome, modifier = Modifier.fillMaxWidth()) { Text("Flash another") }
+            Button(onClick = onHome, modifier = Modifier.fillMaxWidth()) { Text(t.flashAnother) }
         }
     }
 }

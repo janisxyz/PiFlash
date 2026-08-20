@@ -6,7 +6,9 @@ Independent tool — not affiliated with Raspberry Pi Ltd.
 
 Play package name: `piflash.shizoghost.com`
 
-Headless setup supports templates (Home lab, Coolify host, Headless LAN) and named presets stored only on the phone.
+Headless setup supports templates (Home lab, Coolify host, Headless LAN) and named presets stored only on the phone. Edit templates from the home screen without a card plugged in.
+
+Settings cover UI language (system, English, Deutsch, Français, Italiano, Español) and theme (system / light / dark plus Raspberry, teal, indigo, amber, forest, or Android 12+ dynamic color).
 
 ## Play Store
 

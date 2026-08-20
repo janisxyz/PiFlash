@@ -1,0 +1,1 @@
+3.2 — Edit templates and presets from the home screen without a card. Language (EN/DE/FR/IT/ES) and theme color settings (light/dark/system, Raspberry and other palettes, or dynamic color).
