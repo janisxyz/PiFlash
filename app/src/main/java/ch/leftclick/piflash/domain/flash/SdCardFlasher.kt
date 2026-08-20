@@ -4,7 +4,9 @@ import ch.leftclick.piflash.domain.image.ImageDecompressor
 import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.FlashProgress
 import ch.leftclick.piflash.domain.model.SelectedImage
+import ch.leftclick.piflash.domain.model.formatBytes
 import ch.leftclick.piflash.domain.usb.BlockDeviceWriter
+import ch.leftclick.piflash.domain.usb.UsbOem
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -27,8 +29,8 @@ class SdCardFlasher(
             )
         )
         val block = writer.blockSize
-        // Larger buffer = fewer USB round-trips, still report progress often enough
-        val buf = ByteArray(block * 256) // 128 KiB
+        val blocksPerBuf = if (UsbOem.quirkyUsbStack) 64 else 256
+        val buf = ByteArray(block * blocksPerBuf)
         var written = 0L
         val start = System.nanoTime()
         var lastEmitNs = start
@@ -40,7 +42,7 @@ class SdCardFlasher(
                 FlashProgress(
                     FlashPhase.WRITING,
                     totalBytes = estimatedSize,
-                    message = "Writing image to SD card"
+                    message = "Reading image…"
                 )
             )
             var lba = 0L
@@ -57,27 +59,33 @@ class SdCardFlasher(
                 if (writer.capacityBytes > 0 && written + aligned > writer.capacityBytes) {
                     throw IllegalStateException("Image is larger than the SD card")
                 }
+                emit(
+                    FlashProgress(
+                        phase = FlashPhase.WRITING,
+                        bytesWritten = written,
+                        totalBytes = estimatedSize,
+                        bytesPerSecond = lastSpeed,
+                        message = "Writing ${formatBytes(written)} @ LBA $lba"
+                    )
+                )
                 writer.writeBlocks(lba, buf, aligned)
                 written += aligned
                 lba += aligned / block
 
                 val now = System.nanoTime()
-                // Throttle UI updates to ~4/sec so the main thread stays responsive
                 val dt = (now - lastEmitNs) / 1_000_000_000.0
-                if (dt >= 0.25 || lastBytes == 0L) {
-                    lastSpeed = if (dt > 0) (written - lastBytes) / dt else lastSpeed
-                    lastEmitNs = now
-                    lastBytes = written
-                    emit(
-                        FlashProgress(
-                            phase = FlashPhase.WRITING,
-                            bytesWritten = written,
-                            totalBytes = estimatedSize,
-                            bytesPerSecond = lastSpeed,
-                            message = "Writing image to SD card"
-                        )
+                lastSpeed = if (dt > 0) (written - lastBytes) / dt else lastSpeed
+                lastEmitNs = now
+                lastBytes = written
+                emit(
+                    FlashProgress(
+                        phase = FlashPhase.WRITING,
+                        bytesWritten = written,
+                        totalBytes = estimatedSize,
+                        bytesPerSecond = lastSpeed,
+                        message = "Writing image to SD card"
                     )
-                }
+                )
             }
         }
         emit(
