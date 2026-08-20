@@ -8,10 +8,6 @@ import android.hardware.usb.UsbInterface
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/**
- * USB Mass Storage Bulk-Only Transport + SCSI block writer.
- * Writes raw 512-byte sectors. Caller must keep writes block-aligned.
- */
 class BlockDeviceWriter(
     private val connection: UsbDeviceConnection,
     private val usbInterface: UsbInterface,
@@ -37,7 +33,7 @@ class BlockDeviceWriter(
         require(length % blockSize == 0) { "Write length must be a multiple of $blockSize" }
         val blocks = length / blockSize
         val cdb = ByteArray(16)
-        cdb[0] = 0x2A.toByte() // WRITE(10)
+        cdb[0] = 0x2A.toByte()
         cdb[2] = ((lba ushr 24) and 0xFF).toByte()
         cdb[3] = ((lba ushr 16) and 0xFF).toByte()
         cdb[4] = ((lba ushr 8) and 0xFF).toByte()
@@ -59,7 +55,7 @@ class BlockDeviceWriter(
         require(length % blockSize == 0)
         val blocks = length / blockSize
         val cdb = ByteArray(16)
-        cdb[0] = 0x28.toByte() // READ(10)
+        cdb[0] = 0x28.toByte()
         cdb[2] = ((lba ushr 24) and 0xFF).toByte()
         cdb[3] = ((lba ushr 16) and 0xFF).toByte()
         cdb[4] = ((lba ushr 8) and 0xFF).toByte()
@@ -80,14 +76,14 @@ class BlockDeviceWriter(
 
     fun synchronizeCache() {
         val cdb = ByteArray(16)
-        cdb[0] = 0x35.toByte() // SYNCHRONIZE CACHE(10)
+        cdb[0] = 0x35.toByte()
         sendCbw(0, directionOut = true, cdb = cdb)
         readCsw()
     }
 
     private fun readCapacity(): Long {
         val cdb = ByteArray(16)
-        cdb[0] = 0x25.toByte() // READ CAPACITY(10)
+        cdb[0] = 0x25.toByte()
         sendCbw(8, directionOut = false, cdb = cdb)
         val buf = ByteArray(8)
         val n = connection.bulkTransfer(bulkIn, buf, 8, timeoutMs)
@@ -100,12 +96,12 @@ class BlockDeviceWriter(
 
     private fun sendCbw(dataLength: Int, directionOut: Boolean, cdb: ByteArray) {
         val cbw = ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN)
-        cbw.putInt(0x43425355) // USBC
+        cbw.putInt(0x43425355)
         cbw.putInt(tag++)
         cbw.putInt(dataLength)
-        cbw.put(if (directionOut) 0x00 else 0x80)
-        cbw.put(0) // LUN
-        cbw.put(10) // CB length
+        cbw.put(if (directionOut) 0x00.toByte() else 0x80.toByte())
+        cbw.put(0.toByte())
+        cbw.put(10.toByte())
         cbw.put(cdb.copyOf(16))
         val packet = cbw.array()
         val n = connection.bulkTransfer(bulkOut, packet, 31, timeoutMs)
