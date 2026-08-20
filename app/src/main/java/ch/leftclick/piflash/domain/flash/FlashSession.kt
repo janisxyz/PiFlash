@@ -6,6 +6,7 @@ import ch.leftclick.piflash.domain.model.FlashError
 import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.FlashProgress
 import ch.leftclick.piflash.domain.model.FlashSummary
+import ch.leftclick.piflash.domain.model.ImageCompression
 import ch.leftclick.piflash.domain.model.PiConfiguration
 import ch.leftclick.piflash.domain.model.SelectedImage
 import ch.leftclick.piflash.domain.pios.FatBootWriter
@@ -35,12 +36,16 @@ class FlashSession(
                 writer.initialize { msg ->
                     emit(FlashProgress(FlashPhase.PREPARING, message = msg))
                 }
-                val estimated = if (image.compression.name == "NONE") image.sizeBytes else image.sizeBytes
+                val estimated = when {
+                    image.uncompressedBytes > 0 -> image.uncompressedBytes
+                    image.compression == ImageCompression.NONE -> image.sizeBytes
+                    else -> 0L
+                }
                 emit(
                     FlashProgress(
                         FlashPhase.WRITING,
                         totalBytes = estimated,
-                        message = "Starting image write…"
+                        message = if (estimated > 0) "Starting image write…" else "Starting image write (decompressing…)"
                     )
                 )
                 flasher.flash(image, writer, estimated).collect { emit(it) }
