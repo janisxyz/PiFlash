@@ -29,11 +29,20 @@ class FlashSession(
     ): Flow<FlashProgress> = flow {
         val started = System.currentTimeMillis()
         try {
-            emit(FlashProgress(FlashPhase.PREPARING, message = "Opening USB device"))
+            emit(FlashProgress(FlashPhase.PREPARING, message = "Opening USB device…"))
             val connection = usb.openDevice(device)
             BlockDeviceWriter.from(device, connection).use { writer ->
-                writer.initialize()
-                val estimated = if (image.compression.name == "NONE") image.sizeBytes else -1L
+                writer.initialize { msg ->
+                    emit(FlashProgress(FlashPhase.PREPARING, message = msg))
+                }
+                val estimated = if (image.compression.name == "NONE") image.sizeBytes else image.sizeBytes
+                emit(
+                    FlashProgress(
+                        FlashPhase.WRITING,
+                        totalBytes = estimated,
+                        message = "Starting image write…"
+                    )
+                )
                 flasher.flash(image, writer, estimated).collect { emit(it) }
                 emit(FlashProgress(FlashPhase.CONFIGURING, message = "Writing first-boot config"))
                 val files = configurator.buildBootFiles(config)
