@@ -5,7 +5,7 @@ Privacy policy URL (after Pages deploys):
 https://janisxyz.github.io/PiFlash/
 
 Package: `piflash.shizoghost.com`  
-Version: `3.1` (`versionCode` 4)  
+Version: `3.2.x` (`versionCode` = GitHub Actions Release AAB run number)  
 Category: Tools  
 Default language: English (United States)
 
@@ -117,10 +117,18 @@ Keep the existing signing secrets too: `PIFLASH_STORE_BASE64`, `PIFLASH_STORE_PA
 `.github/workflows/release-aab.yml`
 
 - Push to `main` **or** Actions → **Release AAB** → Run workflow
-- Builds signed `app-release.aab`
-- If `PLAY_SERVICE_ACCOUNT_JSON` is set, uploads to Play **internal** (`completed`)
-- Manual run lets you pick `internal` or `production`
+- Builds signed `app-release.aab` (`versionName` 3.2.<run>, `versionCode` = run number)
+- If `PLAY_SERVICE_ACCOUNT_JSON` is set, uploads to Play:
+  - push to `main` → **internal** testing
+  - manual run → pick `internal`, `alpha` (**closed testing**), or `production`
+- Status is `completed` so testers can install immediately after Play processes the release
 
-Until the 12 testers / 14-day closed-test gate is done, leave the dropdown on **internal**.
+Look in Play Console:
+
+- Internal: **Testing → Internal testing**
+- Closed: **Testing → Closed testing** (API track name `alpha`)
+- Production: **Release → Production**
+
+Closed testers must join the opt-in link. A new personal Play account still needs **12 testers for 14 days** on closed testing before production.
 
 If a run says skip Play upload, the secret is missing. If it 403s, the service account invite has not propagated yet.

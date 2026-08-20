@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       play_track:
-        description: Play track (only used if PLAY_SERVICE_ACCOUNT_JSON is set)
+        description: Play track — internal, alpha (closed testing), or production
         type: choice
         options:
           - internal
+          - alpha
           - production
         default: internal
       release_notes:
@@ -47,6 +48,13 @@ jobs:
           echo "PIFLASH_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "PIFLASH_VERSION_NAME=3.2.${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "versionName 3.2.${{ github.run_number }} / versionCode ${{ github.run_number }}"
+
+      - name: Resolve Play track
+        run: |
+          TRACK="${{ github.event.inputs.play_track }}"
+          TRACK="${TRACK:-internal}"
+          echo "PLAY_TRACK=$TRACK" >> "$GITHUB_ENV"
+          echo "Play track: $TRACK"
 
       - name: Generate release notes
         env:
@@ -174,7 +182,7 @@ jobs:
           serviceAccountJson: ${{ env.PLAY_SA_FILE }}
           packageName: piflash.shizoghost.com
           releaseFiles: app/build/outputs/bundle/release/app-release.aab
-          track: ${{ github.event.inputs.play_track || 'internal' }}
+          track: ${{ env.PLAY_TRACK }}
           status: completed
           releaseName: ${{ env.PIFLASH_VERSION_NAME }}
           whatsNewDirectory: play-whatsnew
