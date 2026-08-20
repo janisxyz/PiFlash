@@ -8,6 +8,8 @@ import ch.leftclick.piflash.domain.model.SelectedImage
 
 class ImageAnalyzer(private val context: Context) {
 
+    private val decompressor = ImageDecompressor(context)
+
     fun analyze(uri: Uri): SelectedImage {
         val name = queryName(uri) ?: uri.lastPathSegment ?: "image.img"
         val size = querySize(uri)
@@ -15,13 +17,15 @@ class ImageAnalyzer(private val context: Context) {
         val compression = when {
             lower.endsWith(".img.xz") || lower.endsWith(".xz") -> ImageCompression.XZ
             lower.endsWith(".img.gz") || lower.endsWith(".gz") -> ImageCompression.GZIP
-            lower.endsWith(".img") -> ImageCompression.NONE
+            lower.endsWith(".img") || lower.endsWith(".iso") -> ImageCompression.NONE
             else -> ImageCompression.UNKNOWN
         }
         if (compression == ImageCompression.UNKNOWN) {
             throw IllegalArgumentException("Unsupported image: $name. Use .img, .img.xz or .img.gz")
         }
-        return SelectedImage(uri, name, size, compression)
+        val img = SelectedImage(uri, name, size, compression)
+        val uncompressed = runCatching { decompressor.estimateUncompressedSize(img) }.getOrDefault(-1L)
+        return img.copy(uncompressedBytes = uncompressed)
     }
 
     private fun queryName(uri: Uri): String? {
