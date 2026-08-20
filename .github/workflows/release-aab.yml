@@ -26,20 +26,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: "tools platform-tools platforms;android-35 build-tools;35.0.0"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: "8.7"
 
@@ -129,12 +129,12 @@ jobs:
             echo "PIFLASH_KEY_PASSWORD=${SECRET_KEY_PASSWORD}" >> "$GITHUB_ENV"
           else
             echo "No upload keystore secret — generating a CI keystore for this run"
-            keytool -genkeypair -noprompt \
-              -keystore "$KS" \
-              -storepass android \
-              -keypass android \
-              -alias piflash \
-              -keyalg RSA -keysize 2048 -validity 10000 \
+            keytool -genkeypair -noprompt \\
+              -keystore "$KS" \\
+              -storepass android \\
+              -keypass android \\
+              -alias piflash \\
+              -keyalg RSA -keysize 2048 -validity 10000 \\
               -dname "CN=PiFlash CI, OU=Leftclick, O=Leftclick AG, L=Basel, C=CH"
             echo "PIFLASH_STORE_PASSWORD=android" >> "$GITHUB_ENV"
             echo "PIFLASH_KEY_ALIAS=piflash" >> "$GITHUB_ENV"
@@ -145,7 +145,7 @@ jobs:
       - name: Build release bundle
         run: gradle :app:bundleRelease --no-daemon --stacktrace
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: PiFlash-release-aab
           path: app/build/outputs/bundle/release/*.aab
@@ -153,7 +153,7 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release with AAB
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: aab-v3.2-${{ github.run_number }}
           name: PiFlash 3.2.${{ github.run_number }} AAB
