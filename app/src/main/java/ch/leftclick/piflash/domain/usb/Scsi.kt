@@ -150,6 +150,16 @@ object Scsi {
         )
     }
 
+    fun isCsw(raw: ByteArray, offset: Int = 0): Boolean {
+        if (raw.size < offset + 4) return false
+        val sig =
+            (raw[offset].toInt() and 0xFF) or
+                ((raw[offset + 1].toInt() and 0xFF) shl 8) or
+                ((raw[offset + 2].toInt() and 0xFF) shl 16) or
+                ((raw[offset + 3].toInt() and 0xFF) shl 24)
+        return sig == CSW_SIGNATURE
+    }
+
     fun parseSense(raw: ByteArray): Sense {
         val key = if (raw.size > 2) raw[2].toInt() and 0x0F else 0
         val asc = if (raw.size > 12) raw[12].toInt() and 0xFF else 0
@@ -176,10 +186,12 @@ object Scsi {
     }
 
     fun isRetryable(senseKey: Int, asc: Int, ascq: Int): Boolean {
+        if (senseKey < 0) return true
+        if (senseKey == SENSE_NOT_READY && asc == 0x3A) return false
         return when (senseKey) {
-            SENSE_UNIT_ATTENTION, SENSE_NOT_READY, SENSE_ABORTED, SENSE_RECOVERED -> true
+            SENSE_NO_SENSE, SENSE_UNIT_ATTENTION, SENSE_NOT_READY, SENSE_ABORTED, SENSE_RECOVERED -> true
             else -> false
-        } && !(senseKey == SENSE_NOT_READY && asc == 0x3A)
+        }
     }
 
     fun senseMessage(senseKey: Int, asc: Int, ascq: Int): String {
@@ -204,7 +216,9 @@ object Scsi {
         if (senseKey == SENSE_HARDWARE) {
             return "The USB reader reported a hardware error."
         }
-        if (senseKey < 0) return "SCSI command failed"
+        if (senseKey < 0) {
+            return "The USB reader was not ready (no SCSI sense). Unplug, reinsert the card, and retry."
+        }
         return "SCSI command failed (sense ${hex(senseKey)}/${hex(asc)}/${hex(ascq)})"
     }
 
