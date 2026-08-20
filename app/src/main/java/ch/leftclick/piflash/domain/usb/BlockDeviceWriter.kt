@@ -5,116 +5,299 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import android.os.Build
+import android.util.Log
 
 class BlockDeviceWriter(
     private val connection: UsbDeviceConnection,
     private val usbInterface: UsbInterface,
     private val bulkIn: UsbEndpoint,
-    private val bulkOut: UsbEndpoint
+    private val bulkOut: UsbEndpoint,
+    private val lun: Int = 0
 ) : AutoCloseable {
 
-    val blockSize: Int = 512
+    var blockSize: Int = 512
+        private set
     var capacityBytes: Long = 0L
         private set
 
     private var tag: Int = 1
     private val timeoutMs = 15_000
+    private val shortTimeoutMs = 5_000
 
     fun initialize() {
         if (!connection.claimInterface(usbInterface, true)) {
-            throw IllegalStateException("Failed to claim USB mass-storage interface")
+            throw ScsiException("Failed to claim USB mass-storage interface")
         }
-        capacityBytes = readCapacity()
+        if (Build.VERSION.SDK_INT >= 21) {
+            runCatching { connection.setInterface(usbInterface) }
+        }
+        massStorageReset()
+        val maxLun = getMaxLun()
+        val useLun = lun.coerceIn(0, maxLun)
+        inquiry(useLun)
+        waitUntilReady(useLun)
+        val (lastLba, size) = readCapacity(useLun)
+        blockSize = size.coerceAtLeast(512)
+        capacityBytes = (lastLba + 1L) * blockSize
+        if (isWriteProtected(useLun)) {
+            throw ScsiException("The SD card is write-protected. Slide the lock off and retry.")
+        }
     }
 
     fun writeBlocks(lba: Long, data: ByteArray, length: Int) {
         require(length % blockSize == 0) { "Write length must be a multiple of $blockSize" }
-        val blocks = length / blockSize
-        val cdb = ByteArray(16)
-        cdb[0] = 0x2A.toByte()
-        cdb[2] = ((lba ushr 24) and 0xFF).toByte()
-        cdb[3] = ((lba ushr 16) and 0xFF).toByte()
-        cdb[4] = ((lba ushr 8) and 0xFF).toByte()
-        cdb[5] = (lba and 0xFF).toByte()
-        cdb[7] = ((blocks ushr 8) and 0xFF).toByte()
-        cdb[8] = (blocks and 0xFF).toByte()
-        sendCbw(length, directionOut = true, cdb = cdb)
-        var sent = 0
-        while (sent < length) {
-            val chunk = minOf(length - sent, bulkOut.maxPacketSize * 64)
-            val n = connection.bulkTransfer(bulkOut, data, sent, chunk, timeoutMs)
-            if (n <= 0) throw IllegalStateException("USB write failed at offset $sent (n=$n)")
-            sent += n
+        require(length <= data.size)
+        var offset = 0
+        var at = lba
+        var chunkBlocks = preferredWriteBlocks(length / blockSize)
+        while (offset < length) {
+            val blocks = minOf(chunkBlocks, (length - offset) / blockSize)
+            val bytes = blocks * blockSize
+            try {
+                val slice = if (offset == 0 && bytes == length) data else data.copyOfRange(offset, offset + bytes)
+                scsiWrite(at, slice, bytes)
+                offset += bytes
+                at += blocks
+            } catch (e: ScsiException) {
+                if (e.retryable && chunkBlocks > 1) {
+                    chunkBlocks = (chunkBlocks / 4).coerceAtLeast(1)
+                    continue
+                }
+                throw e
+            }
         }
-        readCsw()
     }
 
     fun readBlocks(lba: Long, length: Int): ByteArray {
         require(length % blockSize == 0)
-        val blocks = length / blockSize
-        val cdb = ByteArray(16)
-        cdb[0] = 0x28.toByte()
-        cdb[2] = ((lba ushr 24) and 0xFF).toByte()
-        cdb[3] = ((lba ushr 16) and 0xFF).toByte()
-        cdb[4] = ((lba ushr 8) and 0xFF).toByte()
-        cdb[5] = (lba and 0xFF).toByte()
-        cdb[7] = ((blocks ushr 8) and 0xFF).toByte()
-        cdb[8] = (blocks and 0xFF).toByte()
-        sendCbw(length, directionOut = false, cdb = cdb)
         val out = ByteArray(length)
-        var rec = 0
-        while (rec < length) {
-            val n = connection.bulkTransfer(bulkIn, out, rec, length - rec, timeoutMs)
-            if (n <= 0) throw IllegalStateException("USB read failed (n=$n)")
-            rec += n
-        }
-        readCsw()
+        execute(Scsi.read10(lba, length / blockSize), length, false, inBuf = out)
         return out
     }
 
     fun synchronizeCache() {
-        val cdb = ByteArray(16)
-        cdb[0] = 0x35.toByte()
-        sendCbw(0, directionOut = true, cdb = cdb)
-        readCsw()
+        try {
+            execute(Scsi.synchronizeCache10(), 0, true, ignoreUnsupported = true)
+        } catch (e: ScsiException) {
+            if (e.senseKey == Scsi.SENSE_ILLEGAL_REQUEST) return
+            Log.w(TAG, "SYNCHRONIZE CACHE failed: ${e.message}")
+        }
     }
 
-    private fun readCapacity(): Long {
-        val cdb = ByteArray(16)
-        cdb[0] = 0x25.toByte()
-        sendCbw(8, directionOut = false, cdb = cdb)
-        val buf = ByteArray(8)
-        val n = connection.bulkTransfer(bulkIn, buf, 8, timeoutMs)
-        if (n < 8) throw IllegalStateException("READ CAPACITY failed")
-        readCsw()
-        val lastLba = ByteBuffer.wrap(buf, 0, 4).order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xFFFFFFFFL
-        val size = ByteBuffer.wrap(buf, 4, 4).order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xFFFFFFFFL
-        return (lastLba + 1) * size
+    private fun scsiWrite(lba: Long, data: ByteArray, length: Int) {
+        execute(Scsi.write10(lba, length / blockSize), length, true, outBuf = data)
     }
 
-    private fun sendCbw(dataLength: Int, directionOut: Boolean, cdb: ByteArray) {
-        val cbw = ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN)
-        cbw.putInt(0x43425355)
-        cbw.putInt(tag++)
-        cbw.putInt(dataLength)
-        cbw.put(if (directionOut) 0x00.toByte() else 0x80.toByte())
-        cbw.put(0.toByte())
-        cbw.put(10.toByte())
-        cbw.put(cdb.copyOf(16))
-        val packet = cbw.array()
-        val n = connection.bulkTransfer(bulkOut, packet, 31, timeoutMs)
-        if (n != 31) throw IllegalStateException("CBW transfer failed (n=$n)")
+    private fun preferredWriteBlocks(total: Int): Int {
+        val maxByPacket = ((bulkOut.maxPacketSize * 64) / blockSize).coerceAtLeast(1)
+        return minOf(total, maxByPacket, 256)
     }
 
-    private fun readCsw() {
-        val csw = ByteArray(13)
-        val n = connection.bulkTransfer(bulkIn, csw, 13, timeoutMs)
-        if (n < 13) throw IllegalStateException("CSW transfer failed (n=$n)")
-        val status = csw[12].toInt() and 0xFF
-        if (status != 0) throw IllegalStateException("SCSI command failed, CSW status=$status")
+    private fun inquiry(useLun: Int) {
+        execute(Scsi.inquiry(), 36, false, inBuf = ByteArray(36), lun = useLun, retries = 3)
     }
+
+    private fun waitUntilReady(useLun: Int) {
+        var last: ScsiException? = null
+        repeat(20) { attempt ->
+            try {
+                execute(Scsi.testUnitReady(), 0, true, lun = useLun, retries = 0)
+                return
+            } catch (e: ScsiException) {
+                last = e
+                if (e.asc == 0x3A) throw ScsiException(Scsi.senseMessage(e.senseKey, e.asc, e.ascq), e.senseKey, e.asc, e.ascq)
+                if (attempt == 5) {
+                    runCatching { execute(Scsi.startStopUnit(true), 0, true, lun = useLun, ignoreUnsupported = true) }
+                }
+                Thread.sleep((50L * (attempt + 1)).coerceAtMost(400L))
+            }
+        }
+        val e = last
+        throw ScsiException(e?.message ?: "Reader never became ready", e?.senseKey ?: -1, e?.asc ?: -1, e?.ascq ?: -1, retryable = true)
+    }
+
+    private fun readCapacity(useLun: Int): Pair<Long, Int> {
+        val buf10 = ByteArray(8)
+        try {
+            execute(Scsi.readCapacity10(), 8, false, inBuf = buf10, lun = useLun, retries = 4)
+            val (last, size) = Scsi.parseCapacity10(buf10)
+            if (last != 0xFFFFFFFFL && size > 0) return last to size
+        } catch (e: ScsiException) {
+            Log.w(TAG, "READ CAPACITY(10) failed: ${e.message}")
+        }
+        val buf16 = ByteArray(32)
+        execute(Scsi.readCapacity16(), 32, false, inBuf = buf16, lun = useLun, retries = 3)
+        val (last, size) = Scsi.parseCapacity16(buf16)
+        if (size <= 0) throw ScsiException("READ CAPACITY returned block size 0")
+        return last to size
+    }
+
+    private fun isWriteProtected(useLun: Int): Boolean {
+        val buf = ByteArray(64)
+        return try {
+            execute(Scsi.modeSense6(), buf.size, false, inBuf = buf, lun = useLun, retries = 1)
+            Scsi.isWriteProtected(buf)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun execute(
+        cdb: ByteArray,
+        dataLength: Int,
+        directionOut: Boolean,
+        outBuf: ByteArray? = null,
+        inBuf: ByteArray? = null,
+        lun: Int = this.lun,
+        retries: Int = 2,
+        ignoreUnsupported: Boolean = false
+    ) {
+        var lastError: ScsiException? = null
+        val attempts = retries + 1
+        repeat(attempts) { attempt ->
+            try {
+                val expectedTag = sendCbw(dataLength, directionOut, cdb, lun)
+                if (dataLength > 0) {
+                    if (directionOut) bulkOutAll(outBuf ?: ByteArray(dataLength), dataLength)
+                    else bulkInAll(inBuf ?: ByteArray(dataLength), dataLength)
+                }
+                val csw = readCsw(expectedTag)
+                when (csw.status) {
+                    Scsi.STATUS_PASSED -> return
+                    Scsi.STATUS_FAILED -> {
+                        val sense = requestSense(lun)
+                        if (ignoreUnsupported && sense.senseKey == Scsi.SENSE_ILLEGAL_REQUEST) return
+                        val ex = ScsiException(sense.message, sense.senseKey, sense.asc, sense.ascq, sense.retryable)
+                        if (sense.retryable && attempt < attempts - 1) {
+                            Thread.sleep(40L * (attempt + 1))
+                            lastError = ex
+                        } else throw ex
+                    }
+                    Scsi.STATUS_PHASE_ERROR -> {
+                        resetRecovery()
+                        lastError = ScsiException("SCSI phase error (CSW status=2)", retryable = true)
+                        if (attempt >= attempts - 1) throw lastError as ScsiException
+                    }
+                    else -> throw ScsiException("SCSI command failed, CSW status=${csw.status}")
+                }
+            } catch (e: ScsiException) {
+                lastError = e
+                if (!e.retryable || attempt >= attempts - 1) throw e
+                resetRecovery()
+                Thread.sleep(40L * (attempt + 1))
+            }
+        }
+        throw lastError ?: ScsiException("SCSI command failed")
+    }
+
+    private fun sendCbw(dataLength: Int, directionOut: Boolean, cdb: ByteArray, lun: Int): Int {
+        val thisTag = tag++
+        val packet = Scsi.buildCbw(thisTag, dataLength, directionOut, lun, cdb)
+        val n = connection.bulkTransfer(bulkOut, packet, Scsi.CBW_SIZE, timeoutMs)
+        if (n != Scsi.CBW_SIZE) {
+            clearHalt(bulkOut)
+            throw ScsiException("CBW transfer failed (n=$n)", retryable = true)
+        }
+        return thisTag
+    }
+
+    private fun readCsw(expectedTag: Int, ignoreStatus: Boolean = false): Csw {
+        val raw = ByteArray(Scsi.CSW_SIZE)
+        var got = 0
+        var tries = 0
+        val tmp = ByteArray(Scsi.CSW_SIZE)
+        while (got < Scsi.CSW_SIZE && tries < 4) {
+            val n = connection.bulkTransfer(bulkIn, tmp, Scsi.CSW_SIZE - got, timeoutMs)
+            if (n == -1) { clearHalt(bulkIn); tries++; continue }
+            if (n <= 0) { tries++; continue }
+            System.arraycopy(tmp, 0, raw, got, minOf(n, Scsi.CSW_SIZE - got))
+            got += n
+        }
+        if (got < Scsi.CSW_SIZE) throw ScsiException("CSW transfer failed (n=$got)", retryable = true)
+        val csw = Scsi.parseCsw(raw)
+        if (csw.signature != Scsi.CSW_SIGNATURE) {
+            clearHalt(bulkIn)
+            throw ScsiException("Invalid CSW signature 0x${Integer.toHexString(csw.signature)}", retryable = true)
+        }
+        if (csw.tag != expectedTag) Log.w(TAG, "CSW tag mismatch expected=$expectedTag got=${csw.tag}")
+        return csw
+    }
+
+    private fun requestSense(lun: Int): Sense {
+        val thisTag = tag++
+        val packet = Scsi.buildCbw(thisTag, 18, false, lun, Scsi.requestSense())
+        val sent = connection.bulkTransfer(bulkOut, packet, Scsi.CBW_SIZE, shortTimeoutMs)
+        if (sent != Scsi.CBW_SIZE) {
+            clearHalt(bulkOut)
+            return Sense(0, -1, 0, 0, ByteArray(0))
+        }
+        val data = ByteArray(18)
+        val bounce = ByteArray(18)
+        val n = connection.bulkTransfer(bulkIn, bounce, 18, shortTimeoutMs)
+        if (n > 0) System.arraycopy(bounce, 0, data, 0, minOf(n, 18))
+        runCatching { readCsw(thisTag, ignoreStatus = true) }
+        if (n < 3) return Sense(0, -1, 0, 0, data)
+        return Scsi.parseSense(data)
+    }
+
+    private fun bulkOutAll(data: ByteArray, length: Int) {
+        var sent = 0
+        val bounce = ByteArray((bulkOut.maxPacketSize * 64).coerceAtLeast(bulkOut.maxPacketSize))
+        var stalls = 0
+        while (sent < length) {
+            val nwant = minOf(length - sent, bounce.size)
+            System.arraycopy(data, sent, bounce, 0, nwant)
+            val n = connection.bulkTransfer(bulkOut, bounce, nwant, timeoutMs)
+            if (n <= 0) {
+                clearHalt(bulkOut)
+                if (++stalls > 3) throw ScsiException("USB write failed at offset $sent (n=$n)", retryable = true)
+                continue
+            }
+            sent += n
+        }
+    }
+
+    private fun bulkInAll(data: ByteArray, length: Int) {
+        var rec = 0
+        val bounce = ByteArray((bulkIn.maxPacketSize * 64).coerceAtLeast(bulkIn.maxPacketSize))
+        var stalls = 0
+        while (rec < length) {
+            val nwant = minOf(length - rec, bounce.size)
+            val n = connection.bulkTransfer(bulkIn, bounce, nwant, timeoutMs)
+            if (n <= 0) {
+                clearHalt(bulkIn)
+                if (++stalls > 3) throw ScsiException("USB read failed (n=$n)", retryable = true)
+                continue
+            }
+            System.arraycopy(bounce, 0, data, rec, minOf(n, length - rec))
+            rec += n
+        }
+    }
+
+    private fun massStorageReset() {
+        val type = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_CLASS or 0x01
+        val r = connection.controlTransfer(type, Scsi.REQ_MASS_STORAGE_RESET, 0, usbInterface.id, ByteArray(0), 0, shortTimeoutMs)
+        if (r < 0) Log.w(TAG, "Bulk-Only reset returned $r")
+        clearHalt(bulkIn)
+        clearHalt(bulkOut)
+        Thread.sleep(20)
+    }
+
+    private fun getMaxLun(): Int {
+        val type = UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_CLASS or 0x01
+        val buf = ByteArray(1)
+        val r = connection.controlTransfer(type, Scsi.REQ_GET_MAX_LUN, 0, usbInterface.id, buf, 1, shortTimeoutMs)
+        return if (r >= 1) buf[0].toInt() and 0x0F else 0
+    }
+
+    private fun clearHalt(ep: UsbEndpoint) {
+        runCatching {
+            connection.controlTransfer(UsbConstants.USB_DIR_OUT or 0x02, 0x01, 0, ep.address, ByteArray(0), 0, shortTimeoutMs)
+        }
+    }
+
+    private fun resetRecovery() = massStorageReset()
 
     override fun close() {
         runCatching { connection.releaseInterface(usbInterface) }
@@ -122,13 +305,18 @@ class BlockDeviceWriter(
     }
 
     companion object {
+        private const val TAG = "PiFlash.BOT"
+
         fun from(device: UsbDevice, connection: UsbDeviceConnection): BlockDeviceWriter {
-            var foundIface: UsbInterface? = null
-            var inn: UsbEndpoint? = null
-            var out: UsbEndpoint? = null
+            runCatching {
+                if (device.configurationCount > 0) connection.setConfiguration(device.getConfiguration(0))
+            }
+            data class Candidate(val iface: UsbInterface, val inn: UsbEndpoint, val out: UsbEndpoint, val score: Int)
+            val candidates = ArrayList<Candidate>()
             for (i in 0 until device.interfaceCount) {
                 val iface = device.getInterface(i)
                 if (iface.interfaceClass != UsbConstants.USB_CLASS_MASS_STORAGE) continue
+                if (iface.interfaceProtocol == Scsi.PROTOCOL_UAS) continue
                 var inEp: UsbEndpoint? = null
                 var outEp: UsbEndpoint? = null
                 for (e in 0 until iface.endpointCount) {
@@ -136,15 +324,15 @@ class BlockDeviceWriter(
                     if (ep.type != UsbConstants.USB_ENDPOINT_XFER_BULK) continue
                     if (ep.direction == UsbConstants.USB_DIR_IN) inEp = ep else outEp = ep
                 }
-                if (inEp != null && outEp != null) {
-                    foundIface = iface
-                    inn = inEp
-                    out = outEp
-                    break
-                }
+                if (inEp == null || outEp == null) continue
+                var score = 1
+                if (iface.interfaceSubclass == Scsi.SUBCLASS_SCSI) score += 2
+                if (iface.interfaceProtocol == Scsi.PROTOCOL_BOT) score += 3
+                candidates += Candidate(iface, inEp, outEp, score)
             }
-            val iface = foundIface ?: throw IllegalStateException("No USB mass-storage bulk endpoints")
-            return BlockDeviceWriter(connection, iface, inn!!, out!!)
+            val best = candidates.maxByOrNull { it.score }
+                ?: throw ScsiException("No USB mass-storage Bulk-Only interface (UAS-only readers are not supported)")
+            return BlockDeviceWriter(connection, best.iface, best.inn, best.out)
         }
     }
 }
