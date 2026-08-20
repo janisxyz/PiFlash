@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import ch.leftclick.piflash.domain.flash.FlashForegroundService
 import ch.leftclick.piflash.domain.flash.FlashSession
 import ch.leftclick.piflash.domain.image.ImageAnalyzer
 import ch.leftclick.piflash.domain.image.ImageDecompressor
@@ -245,10 +246,17 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         flashJob?.cancel()
+        FlashForegroundService.start(getApplication())
         flashJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 session.run(image, device.device, s.config).collect { p ->
-                    _state.update { it.copy(progress = p, error = p.error?.message) }
+                    val failed = p.phase == FlashPhase.FAILED
+                    _state.update {
+                        it.copy(
+                            progress = if (failed) p.copy(error = null) else p,
+                            error = p.error?.message
+                        )
+                    }
                 }
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
@@ -256,18 +264,20 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         progress = FlashProgress(
                             phase = FlashPhase.FAILED,
-                            message = t.message ?: "Flash failed",
-                            error = FlashError(t.message ?: t.javaClass.simpleName, t)
+                            message = t.message ?: "Flash failed"
                         ),
                         error = t.message
                     )
                 }
+            } finally {
+                FlashForegroundService.stop(getApplication())
             }
         }
     }
 
     fun cancelFlash() {
         flashJob?.cancel()
+        FlashForegroundService.stop(getApplication())
         _state.update {
             it.copy(
                 progress = FlashProgress(
@@ -280,6 +290,7 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
 
     fun reset() {
         flashJob?.cancel()
+        FlashForegroundService.stop(getApplication())
         _state.update {
             it.copy(
                 progress = FlashProgress(FlashPhase.IDLE),
