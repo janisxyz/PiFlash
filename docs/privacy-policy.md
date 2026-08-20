@@ -19,9 +19,11 @@ PiFlash does **not** collect, sell, share, or transmit personal data.
 
 You may enter a hostname, username, password, Wi-Fi SSID and password, SSH public key, country, timezone, locale, and keyboard layout.
 
-These values are used only to write standard Raspberry Pi first-boot files (`userconf`, `ssh`, `wpa_supplicant.conf`, `firstrun.sh`) onto the selected SD card. They are not uploaded anywhere.
+These values are used to write standard Raspberry Pi first-boot files (`userconf`, `ssh`, `wpa_supplicant.conf`, `firstrun.sh`) onto the selected SD card. They are not uploaded anywhere.
 
-Passwords are hashed on-device (SHA-512 crypt) before being written. Credentials are not logged.
+If you save a named preset, the same values (including Wi-Fi and account secrets) are stored in the app’s private files on this phone so you can flash another card later. Built-in templates do not contain secrets. Android backup is disabled for this app, so presets are not copied to cloud backup. Uninstalling the app deletes them.
+
+Passwords are hashed on-device (SHA-512 crypt) before being written to the SD card. Credentials are not logged.
 
 ## Permissions
 

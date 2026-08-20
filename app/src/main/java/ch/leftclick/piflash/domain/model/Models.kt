@@ -43,6 +43,61 @@ data class PiConfiguration(
     val installCoolify: Boolean = false
 )
 
+/** A named headless-setup snapshot. Built-in templates have [builtIn] = true and are not persisted. */
+data class ConfigPreset(
+    val id: String,
+    val name: String,
+    val config: PiConfiguration,
+    val savedAt: Long = 0L,
+    val builtIn: Boolean = false
+)
+
+object ConfigTemplates {
+    val all: List<ConfigPreset> = listOf(
+        ConfigPreset(
+            id = "template-home",
+            name = "Home lab",
+            builtIn = true,
+            config = PiConfiguration(
+                hostname = "raspberrypi",
+                username = "pi",
+                enableSsh = true,
+                enableWifi = true,
+                country = "CH",
+                timezone = "Europe/Zurich"
+            )
+        ),
+        ConfigPreset(
+            id = "template-coolify",
+            name = "Coolify host",
+            builtIn = true,
+            config = PiConfiguration(
+                hostname = "coolify",
+                username = "coolify",
+                enableSsh = true,
+                enableWifi = true,
+                aptUpdateUpgrade = true,
+                installCoolify = true,
+                country = "CH",
+                timezone = "Europe/Zurich"
+            )
+        ),
+        ConfigPreset(
+            id = "template-lan",
+            name = "Headless LAN",
+            builtIn = true,
+            config = PiConfiguration(
+                hostname = "raspi",
+                username = "pi",
+                enableSsh = true,
+                enableWifi = false,
+                country = "CH",
+                timezone = "Europe/Zurich"
+            )
+        )
+    )
+}
+
 enum class ImageCompression { NONE, XZ, GZIP, UNKNOWN }
 
 enum class WifiSecurity { OPEN, WPA2, WPA3 }

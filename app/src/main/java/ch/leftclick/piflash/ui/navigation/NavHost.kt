@@ -48,6 +48,9 @@ fun PiFlashNavHost(viewModel: FlashViewModel) {
             ConfigScreen(
                 state = state,
                 onChange = viewModel::updateConfig,
+                onApplyPreset = viewModel::applyPreset,
+                onSavePreset = viewModel::savePreset,
+                onDeletePreset = viewModel::deletePreset,
                 onBack = { nav.popBackStack() },
                 onFlash = {
                     viewModel.startFlash()

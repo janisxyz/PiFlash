@@ -1,0 +1,1 @@
+3.2 — Headless-setup templates (Home lab, Coolify host, Headless LAN) and named presets saved on the phone. First-boot apt upgrade and Coolify install toggles. Last-used config restored on launch.
