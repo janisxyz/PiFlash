@@ -1,0 +1,1 @@
+Flash and configure Raspberry Pi OS to an SD card from your phone.

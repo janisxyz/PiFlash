@@ -2,41 +2,25 @@
 
 Flash and configure Raspberry Pi OS from your Android phone over USB-C.
 
-Native Android app (Kotlin, Jetpack Compose, Material 3). Independent tool — not affiliated with Raspberry Pi Ltd.
+Independent tool — not affiliated with Raspberry Pi Ltd.
 
-## Logo
+## Play Store
 
-White microSD + gold lightning on raspberry `#C51A4A`. Adaptive launcher icon with monochrome layer for Android 13 themed icons.
+Step-by-step publish guide: [docs/PLAY_STORE.md](docs/PLAY_STORE.md)
 
-## Download APK via GitHub Actions
+Privacy policy (GitHub Pages): https://janisxyz.github.io/PiFlash/
 
-1. Open **[Actions](https://github.com/janisxyz/PiFlash/actions)**
-2. Select **Build APK** → latest green run
-3. Download **PiFlash-debug** and sideload (allow unknown sources)
+Listing copy lives in `fastlane/metadata/android/en-US/`.
 
-## Google Play
+To build the upload bundle after adding keystore secrets:
 
-See [docs/PLAY_STORE.md](docs/PLAY_STORE.md) for listing copy, Data safety answers, and how to sign an AAB.
-Privacy policy: [docs/privacy-policy.md](docs/privacy-policy.md).
+1. Actions → **Release AAB** → Run workflow
+2. Download the `PiFlash-release-aab` artifact
+3. Upload `app-release.aab` in Play Console
 
-## Local build
+## Debug APK
 
-```bash
-gradle :app:assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
-```
-
-JDK 17 + Android SDK 34 required.
-
-## Defaults
-
-| Field | Default |
-|-------|--------|
-| Hostname | `raspberrypi` |
-| Country | `CH` |
-| Timezone | `Europe/Zurich` |
-
-No default password.
+Actions → **Build APK** → latest green run → `PiFlash-debug`.
 
 ## License
 

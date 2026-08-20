@@ -1,0 +1,1 @@
+First Play Store release. Flash Raspberry Pi OS images over USB-C and apply headless Wi-Fi, SSH, and user setup.

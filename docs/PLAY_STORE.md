@@ -1,85 +1,76 @@
-# Google Play listing
+# Publish PiFlash on Google Play
 
-## App identity
+Privacy policy URL (after Pages deploys):
 
-| Field | Value |
-|-------|--------|
-| App name | PiFlash |
-| Package | `ch.leftclick.piflash` |
-| Category | Tools |
-| Tags | Raspberry Pi, SD card, imager, USB |
-| Default language | English |
-| Contact | Leftclick AG |
+https://janisxyz.github.io/PiFlash/
 
-## Short description (max 80)
+Package: `ch.leftclick.piflash`  
+Version: `1.0.0` (`versionCode` 3)  
+Category: Tools  
+Default language: English (United States)
 
-Flash and configure Raspberry Pi OS to an SD card from your phone.
+## 1. Developer account
 
-## Full description
+- Pay the Play one-time registration fee.
+- If this is a personal account created after 13 Nov 2023 you must run a **14-day closed test with at least 12 testers** before production.
 
-PiFlash writes a Raspberry Pi OS image to a microSD card over USB-C and applies headless first-boot settings on the phone.
-
-What you can do
-
-• Flash .img, .img.xz, and .img.gz images with streaming decompression
-• Set hostname, username, and password
-• Enable SSH with password, public key, or both
-• Configure Wi-Fi (WPA2 / WPA3 / open, hidden SSID, country code)
-• Set timezone, locale, and keyboard layout
-• Works fully offline. Nothing is uploaded.
-
-You need a USB-C SD card reader (or a phone that can act as USB host) and a Raspberry Pi OS image stored on the device.
-
-Warnings
-
-Flashing erases everything on the selected card. Confirm the target before you start. Use a genuine SD card. This app is not affiliated with Raspberry Pi Ltd.
-
-## Store assets (upload in Play Console)
-
-| Asset | Spec |
-|-------|------|
-| App icon | 512 × 512 PNG, square, no baked-in rounding |
-| Feature graphic | 1024 × 500 PNG, no alpha |
-| Phone screenshots | at least 2, 16:9 or 9:16 |
-
-Export the launcher mark from the adaptive vectors in `app/src/main/res/drawable/`.
-
-## Data safety form
-
-- Data collected: no
-- Data shared: no
-- Security practices: data is encrypted in transit N/A (no network); users can request deletion N/A
-- Account: no
-
-## Content rating
-
-Everyone / Tools. Destructive write is a user-confirmed action, not violent content.
-
-## Signing
-
-Play requires an Android App Bundle (`.aab`), not a debug APK.
-
-Create an upload keystore once and keep it offline:
+## 2. Upload key (once)
 
 ```bash
 keytool -genkey -v -keystore piflash-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias piflash
+base64 -w0 piflash-upload.jks > piflash-upload.b64
 ```
 
-Then build:
+Add GitHub Actions secrets (never commit the jks):
 
-```bash
-export PIFLASH_STORE_FILE=/absolute/path/piflash-upload.jks
-export PIFLASH_STORE_PASSWORD=...
-export PIFLASH_KEY_ALIAS=piflash
-export PIFLASH_KEY_PASSWORD=...
-gradle :app:bundleRelease
-# → app/build/outputs/bundle/release/app-release.aab
-```
+| Secret | Value |
+|--------|--------|
+| `PIFLASH_STORE_BASE64` | contents of `piflash-upload.b64` |
+| `PIFLASH_STORE_PASSWORD` | keystore password |
+| `PIFLASH_KEY_ALIAS` | `piflash` |
+| `PIFLASH_KEY_PASSWORD` | key password |
 
-Never commit the keystore. Enroll Play App Signing so Google holds the app signing key.
+Then run workflow **Release AAB** → download `app-release.aab`.
 
-## Policy notes that will be asked
+In Play Console: Create app → enroll **Play App Signing** → upload the AAB as the first artifact.
 
-- Privacy policy URL: publish `docs/privacy-policy.md` on a public HTTPS page and paste the URL.
-- USB host is required (`android.hardware.usb.host`). Devices without host USB will be excluded. That is intended.
-- Target API: bump `targetSdk` to the current Play requirement before submission if Console rejects 34.
+## 3. Store listing copy
+
+Paste from `fastlane/metadata/android/en-US/`.
+
+- Title: PiFlash
+- Short description: Flash and configure Raspberry Pi OS to an SD card from your phone.
+- Full description: `full_description.txt`
+
+## 4. Graphics
+
+| Asset | File |
+|-------|------|
+| App icon 512×512 | `store/icon.svg` (export PNG) |
+| Feature graphic 1024×500 | `store/feature.svg` (export PNG) |
+| Phone screenshots | at least 2 from a real device; mockups can be used for the first upload |
+
+Do **not** round the Play icon. Google applies the mask.
+
+## 5. App content declarations
+
+- Privacy policy: `https://janisxyz.github.io/PiFlash/`
+- Data safety: see `docs/DATA_SAFETY.md`
+- Content rating: see `docs/CONTENT_RATING.md`
+- Ads: no
+- Target audience: 18+ or 13+ utility is fine; not a kids app
+- News / COVID / government: no
+- Financial features: no
+- Health: no
+
+## 6. Device catalog
+
+`android.hardware.usb.host` is required. Phones without USB host will be excluded. Leave it that way.
+
+## 7. Target API
+
+`targetSdk` is **35**. From **31 August 2026** new submissions must target **36**. Bump `compileSdk` / `targetSdk` before that date if you have not shipped yet.
+
+## 8. Trademark
+
+Do not use the Raspberry Pi berry logo. Nominative use of the words “Raspberry Pi OS” in the description is fine with the unaffiliated disclaimer already in the listing.

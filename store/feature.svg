@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#141416"/>
+      <stop offset="1" stop-color="#C51A4A"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="500" fill="url(#bg)"/>
+  <g transform="translate(80,70) scale(0.7)">
+    <rect width="512" height="512" rx="0" fill="none"/>
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M156 112h148l52 52v228c0 22-18 40-40 40H156c-22 0-40-18-40-40V152c0-22 18-40 40-40zm20 88h160c12 0 20 8 20 20v148c0 12-8 20-20 20H176c-12 0-20-8-20-20V220c0-12 8-20 20-20z"/>
+    <path fill="#F5C518" d="M292 148L212 268h44L232 384l108-140h-44l36-96z"/>
+  </g>
+  <text x="480" y="240" fill="#FFFFFF" font-family="system-ui,sans-serif" font-size="84" font-weight="700">PiFlash</text>
+  <text x="480" y="300" fill="#E8E8EA" font-family="system-ui,sans-serif" font-size="28">Flash Raspberry Pi OS from your phone</text>
+</svg>

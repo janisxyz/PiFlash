@@ -28,7 +28,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "tools platform-tools platforms;android-34 build-tools;34.0.0"
+          packages: "tools platform-tools platforms;android-35 build-tools;35.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -44,18 +44,6 @@ jobs:
           name: PiFlash-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Build unsigned release bundle
-        run: gradle :app:bundleRelease --no-daemon --stacktrace
-        continue-on-error: true
-
-      - name: Upload AAB artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PiFlash-release-aab
-          path: app/build/outputs/bundle/release/*.aab
-          if-no-files-found: ignore
           retention-days: 30
 
       - name: Publish GitHub Release
