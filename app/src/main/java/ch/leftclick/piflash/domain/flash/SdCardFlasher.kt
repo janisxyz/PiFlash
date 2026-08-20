@@ -33,22 +33,39 @@ class SdCardFlasher(
         val buf = ByteArray(block * blocksPerBuf)
         var written = 0L
         val start = System.nanoTime()
-        var lastEmitNs = start
+        var lastEmitNs = 0L
         var lastBytes = 0L
         var lastSpeed = 0.0
+        var lba = 0L
 
         fun totalNow(): Long =
             if (estimatedSize > 0) maxOf(estimatedSize, written) else 0L
 
-        decompressor.openStream(image).use { stream ->
+        suspend fun emitWriting(force: Boolean) {
+            val now = System.nanoTime()
+            if (!force && lastEmitNs != 0L && now - lastEmitNs < 1_000_000_000L) return
+            val dt = if (lastEmitNs == 0L) (now - start) / 1e9 else (now - lastEmitNs) / 1e9
+            if (dt > 0) lastSpeed = (written - lastBytes) / dt
+            lastEmitNs = now
+            lastBytes = written
+            val total = totalNow()
             emit(
                 FlashProgress(
-                    FlashPhase.WRITING,
-                    totalBytes = estimatedSize,
-                    message = if (estimatedSize > 0) "Writing image…" else "Decompressing and writing image…"
+                    phase = FlashPhase.WRITING,
+                    bytesWritten = written,
+                    totalBytes = total,
+                    bytesPerSecond = lastSpeed,
+                    message = if (total > 0) {
+                        "Writing ${formatBytes(written)} / ${formatBytes(total)} @ LBA $lba"
+                    } else {
+                        "Writing ${formatBytes(written)} (decompressing) @ LBA $lba"
+                    }
                 )
             )
-            var lba = 0L
+        }
+
+        decompressor.openStream(image).use { stream ->
+            emitWriting(force = true)
             while (true) {
                 currentCoroutineContext().ensureActive()
                 val n = readFully(stream, buf)
@@ -65,28 +82,10 @@ class SdCardFlasher(
                 writer.writeBlocks(lba, buf, aligned)
                 written += aligned
                 lba += aligned / block
-
-                val now = System.nanoTime()
-                val dt = (now - lastEmitNs) / 1_000_000_000.0
-                lastSpeed = if (dt > 0) (written - lastBytes) / dt else lastSpeed
-                lastEmitNs = now
-                lastBytes = written
-                val total = totalNow()
-                emit(
-                    FlashProgress(
-                        phase = FlashPhase.WRITING,
-                        bytesWritten = written,
-                        totalBytes = total,
-                        bytesPerSecond = lastSpeed,
-                        message = if (total > 0) {
-                            "Writing ${formatBytes(written)} / ${formatBytes(total)} @ LBA $lba"
-                        } else {
-                            "Writing ${formatBytes(written)} (decompressing) @ LBA $lba"
-                        }
-                    )
-                )
+                emitWriting(force = false)
             }
         }
+        emitWriting(force = true)
         emit(
             FlashProgress(
                 FlashPhase.SYNCING,
