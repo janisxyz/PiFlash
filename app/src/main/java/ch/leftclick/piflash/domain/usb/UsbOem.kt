@@ -6,19 +6,25 @@ object UsbOem {
     val manufacturer: String
         get() = Build.MANUFACTURER.orEmpty()
 
+    /** Xiaomi / HyperOS / MIUI USB host stack. Stock Android 12–16 stays on the AOSP path. */
     val quirkyUsbStack: Boolean
         get() {
-            val m = manufacturer.lowercase()
-            val b = Build.BRAND.orEmpty().lowercase()
-            val display = Build.DISPLAY.orEmpty().lowercase()
-            return m.contains("xiaomi") || b.contains("xiaomi") ||
-                m.contains("redmi") || b.contains("redmi") ||
-                m.contains("poco") || b.contains("poco") ||
-                display.contains("hyperos") ||
-                Build.VERSION.SDK_INT >= 36
+            val hay = listOf(
+                manufacturer,
+                Build.BRAND.orEmpty(),
+                Build.DISPLAY.orEmpty(),
+                Build.FINGERPRINT.orEmpty()
+            ).joinToString(" ").lowercase()
+            return hay.contains("xiaomi") ||
+                hay.contains("redmi") ||
+                hay.contains("poco") ||
+                hay.contains("hyperos") ||
+                hay.contains("miui") ||
+                hay.contains("blackshark")
         }
 
     val otgHint: String =
-        "HyperOS/Android 16: enable Settings → Additional settings → OTG before plugging the reader. " +
-            "If OTG is greyed out, unplug everything first, turn OTG on, then plug the reader."
+        "HyperOS: enable Settings → Additional settings → OTG before plugging the reader. " +
+            "If OTG is greyed out, unplug everything first, turn OTG on, then plug the reader. " +
+            "Keep PiFlash on screen while flashing."
 }

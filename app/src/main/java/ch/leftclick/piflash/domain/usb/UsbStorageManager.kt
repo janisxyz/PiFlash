@@ -38,7 +38,13 @@ class UsbStorageManager(private val context: Context) {
             addAction(ACTION_USB_PERMISSION)
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            // HyperOS drops USB permission callbacks to NOT_EXPORTED receivers.
+            val recFlags = if (UsbOem.quirkyUsbStack) {
+                Context.RECEIVER_EXPORTED
+            } else {
+                Context.RECEIVER_NOT_EXPORTED
+            }
+            context.registerReceiver(receiver, filter, recFlags)
         } else {
             @Suppress("DEPRECATION")
             context.registerReceiver(receiver, filter)
@@ -65,8 +71,8 @@ class UsbStorageManager(private val context: Context) {
     fun hasPermission(device: UsbDevice): Boolean = usbManager.hasPermission(device)
 
     fun requestPermission(device: UsbDevice) {
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-            if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+        // Android 12+ USB host requires a *mutable* PendingIntent or the grant never sticks.
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         val intent = Intent(ACTION_USB_PERMISSION).apply {
             setPackage(context.packageName)
             putExtra(UsbManager.EXTRA_DEVICE, device)

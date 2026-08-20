@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "piflash.shizoghost.com"
-        minSdk = 26
+        minSdk = 31
         targetSdk = 35
         versionCode = System.getenv("PIFLASH_VERSION_CODE")?.toIntOrNull() ?: 9
         versionName = System.getenv("PIFLASH_VERSION_NAME") ?: "3.4"
