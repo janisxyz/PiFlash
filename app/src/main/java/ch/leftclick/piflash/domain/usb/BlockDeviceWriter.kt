@@ -36,9 +36,10 @@ class BlockDeviceWriter(
         if (!connection.claimInterface(usbInterface, true)) {
             throw ScsiException("Failed to claim USB mass-storage interface")
         }
-        if (Build.VERSION.SDK_INT >= 21) {
+        if (!UsbOem.quirkyUsbStack && Build.VERSION.SDK_INT >= 21) {
             runCatching { connection.setInterface(usbInterface) }
         }
+        if (UsbOem.quirkyUsbStack) delay(200)
         onStatus("Resetting USB reader…")
         massStorageReset()
         val maxLun = getMaxLun()
@@ -62,7 +63,8 @@ class BlockDeviceWriter(
         }
         if (!ready) {
             throw last ?: ScsiException(
-                "The USB reader did not become ready in time. Unplug it, reinsert the SD card, and retry.",
+                "The USB reader did not become ready in time. Unplug it, reinsert the SD card, and retry." +
+                    if (UsbOem.quirkyUsbStack) "\n\n${UsbOem.otgHint}" else "",
                 retryable = true
             )
         }
@@ -388,8 +390,10 @@ class BlockDeviceWriter(
         private const val TAG = "PiFlash.BOT"
 
         fun from(device: UsbDevice, connection: UsbDeviceConnection): BlockDeviceWriter {
-            runCatching {
-                if (device.configurationCount > 0) connection.setConfiguration(device.getConfiguration(0))
+            if (!UsbOem.quirkyUsbStack) {
+                runCatching {
+                    if (device.configurationCount > 0) connection.setConfiguration(device.getConfiguration(0))
+                }
             }
             data class Candidate(val iface: UsbInterface, val inn: UsbEndpoint, val out: UsbEndpoint, val score: Int)
             val candidates = ArrayList<Candidate>()
