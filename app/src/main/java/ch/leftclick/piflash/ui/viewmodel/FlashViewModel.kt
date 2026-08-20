@@ -17,6 +17,10 @@ import ch.leftclick.piflash.domain.model.FlashProgress
 import ch.leftclick.piflash.domain.model.PiConfiguration
 import ch.leftclick.piflash.domain.model.SelectedImage
 import ch.leftclick.piflash.domain.model.UsbStorageDevice
+import ch.leftclick.piflash.domain.prefs.Accent
+import ch.leftclick.piflash.domain.prefs.AppPreferences
+import ch.leftclick.piflash.domain.prefs.AppSettings
+import ch.leftclick.piflash.domain.prefs.ThemeMode
 import ch.leftclick.piflash.domain.preset.PresetStore
 import ch.leftclick.piflash.domain.usb.UsbStorageManager
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +42,10 @@ data class UiState(
     val activePresetId: String? = null,
     val progress: FlashProgress = FlashProgress(FlashPhase.IDLE),
     val error: String? = null,
-    val acknowledgedErase: Boolean = false
+    val acknowledgedErase: Boolean = false,
+    val languageTag: String = "",
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val accent: Accent = Accent.RASPBERRY
 )
 
 class FlashViewModel(app: Application) : AndroidViewModel(app) {
@@ -46,6 +53,7 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
     private val analyzer = ImageAnalyzer(app)
     private val session = FlashSession(usb, ImageDecompressor(app))
     private val presetStore = PresetStore(app.filesDir)
+    private val prefs = AppPreferences(app)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -53,6 +61,14 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
     private var flashJob: Job? = null
 
     init {
+        val settings = prefs.load()
+        _state.update {
+            it.copy(
+                languageTag = settings.languageTag,
+                themeMode = settings.themeMode,
+                accent = settings.accent
+            )
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val (saved, last) = presetStore.load()
             _state.update {
@@ -65,18 +81,15 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             usb.observeDevices().collect { list ->
                 _state.update { prev ->
-                    // Refresh selected device from the new list (permission may have changed)
                     val refreshed = prev.selectedDevice?.let { sel ->
                         list.find { sameDevice(it, sel) }
                     }
-                    // Auto-select when there is exactly one device and nothing is selected yet
                     val auto = when {
                         refreshed != null -> refreshed
                         prev.selectedDevice == null && list.size == 1 -> list.first()
                         prev.selectedDevice != null && list.none { sameDevice(it, prev.selectedDevice!!) } -> null
                         else -> prev.selectedDevice
                     }
-                    // Request permission for auto-selected device if needed
                     if (auto != null && !auto.hasPermission && prev.selectedDevice == null && list.size == 1) {
                         usb.requestPermission(auto.device)
                     }
@@ -106,7 +119,6 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             val switching = prev.selectedDevice != null && !sameDevice(prev.selectedDevice!!, device)
             prev.copy(
                 selectedDevice = device,
-                // Only clear the erase acknowledgement when switching to a different device
                 acknowledgedErase = if (switching) false else prev.acknowledgedErase,
                 error = null
             )
@@ -115,7 +127,6 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
 
     fun acknowledgeErase(value: Boolean) {
         _state.update { prev ->
-            // If user ticks the box and there is exactly one device, select it automatically
             val selected = prev.selectedDevice
                 ?: prev.devices.singleOrNull()?.also { dev ->
                     if (!dev.hasPermission) usb.requestPermission(dev.device)
@@ -129,13 +140,13 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateConfig(transform: (PiConfiguration) -> PiConfiguration) {
         _state.update { it.copy(config = transform(it.config), activePresetId = null) }
+        persistConfig()
     }
 
     fun applyPreset(preset: ConfigPreset) {
         val current = _state.value.config
         val incoming = preset.config
         val next = if (preset.builtIn) {
-            // Templates fill hostname / first-boot flags; keep secrets already typed in the form.
             incoming.copy(
                 password = incoming.password.ifBlank { current.password },
                 sshPublicKey = incoming.sshPublicKey.ifBlank { current.sshPublicKey },
@@ -146,6 +157,7 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             incoming
         }
         _state.update { it.copy(config = next, activePresetId = preset.id, error = null) }
+        persistConfig()
     }
 
     fun savePreset(name: String) {
@@ -177,6 +189,33 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
                     activePresetId = if (it.activePresetId == id) null else it.activePresetId
                 )
             }
+        }
+    }
+
+    fun setLanguage(tag: String) {
+        _state.update { it.copy(languageTag = tag) }
+        persistSettings()
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        _state.update { it.copy(themeMode = mode) }
+        persistSettings()
+    }
+
+    fun setAccent(accent: Accent) {
+        _state.update { it.copy(accent = accent) }
+        persistSettings()
+    }
+
+    private fun persistSettings() {
+        val s = _state.value
+        prefs.save(AppSettings(s.languageTag, s.themeMode, s.accent))
+    }
+
+    private fun persistConfig() {
+        val s = _state.value
+        viewModelScope.launch(Dispatchers.IO) {
+            presetStore.save(s.presets, s.config)
         }
     }
 

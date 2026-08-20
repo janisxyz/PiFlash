@@ -21,7 +21,7 @@ You may enter a hostname, username, password, Wi-Fi SSID and password, SSH publi
 
 These values are used to write standard Raspberry Pi first-boot files (`userconf`, `ssh`, `wpa_supplicant.conf`, `firstrun.sh`) onto the selected SD card. They are not uploaded anywhere.
 
-If you save a named preset, the same values (including Wi-Fi and account secrets) are stored in the app’s private files on this phone so you can flash another card later. Built-in templates do not contain secrets. Android backup is disabled for this app, so presets are not copied to cloud backup. Uninstalling the app deletes them.
+If you save a named preset, the same values (including Wi-Fi and account secrets) are stored in the app’s private files on this phone so you can flash another card later. Built-in templates do not contain secrets. Language and theme settings are stored in app preferences on this phone. Android backup is disabled for this app, so presets and settings are not copied to cloud backup. Uninstalling the app deletes them.
 
 Passwords are hashed on-device (SHA-512 crypt) before being written to the SD card. Credentials are not logged.
 

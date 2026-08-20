@@ -17,4 +17,4 @@ Leave every collection / sharing box unchecked.
 
 ## Approximate notes if Console asks follow-ups
 
-Wi-Fi passwords, SSH keys, and account passwords are entered locally and written only to the SD card the user selected. Named presets (optional) store the same values in the app’s private files on the phone. They never leave the device via this app. Android backup is off; uninstall deletes them.
+Wi-Fi passwords, SSH keys, and account passwords are entered locally and written only to the SD card the user selected. Named presets (optional) store the same values in the app’s private files on the phone. Language and theme choices are stored in app preferences. They never leave the device via this app. Android backup is off; uninstall deletes them.

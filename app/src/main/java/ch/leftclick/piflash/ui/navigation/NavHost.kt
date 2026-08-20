@@ -11,6 +11,7 @@ import ch.leftclick.piflash.ui.screens.ConfigScreen
 import ch.leftclick.piflash.ui.screens.DeviceScreen
 import ch.leftclick.piflash.ui.screens.FlashProgressScreen
 import ch.leftclick.piflash.ui.screens.HomeScreen
+import ch.leftclick.piflash.ui.screens.SettingsScreen
 import ch.leftclick.piflash.ui.screens.SuccessScreen
 import ch.leftclick.piflash.ui.viewmodel.FlashViewModel
 
@@ -20,6 +21,7 @@ object Routes {
     const val CONFIG = "config"
     const val PROGRESS = "progress"
     const val SUCCESS = "success"
+    const val SETTINGS = "settings"
 }
 
 @Composable
@@ -32,7 +34,9 @@ fun PiFlashNavHost(viewModel: FlashViewModel) {
             HomeScreen(
                 state = state,
                 onImagePicked = viewModel::onImagePicked,
-                onContinue = { nav.navigate(Routes.DEVICE) }
+                onContinue = { nav.navigate(Routes.DEVICE) },
+                onOpenTemplates = { nav.navigate(Routes.CONFIG) },
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) }
             )
         }
         composable(Routes.DEVICE) {
@@ -56,6 +60,15 @@ fun PiFlashNavHost(viewModel: FlashViewModel) {
                     viewModel.startFlash()
                     nav.navigate(Routes.PROGRESS)
                 }
+            )
+        }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                state = state,
+                onLanguage = viewModel::setLanguage,
+                onThemeMode = viewModel::setThemeMode,
+                onAccent = viewModel::setAccent,
+                onBack = { nav.popBackStack() }
             )
         }
         composable(Routes.PROGRESS) {
