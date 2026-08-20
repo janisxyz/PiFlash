@@ -250,11 +250,12 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
         flashJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 session.run(image, device.device, s.config).collect { p ->
-                    val failed = p.phase == FlashPhase.FAILED
+                    val msg = p.message.ifBlank { p.error?.message.orEmpty() }
+                        .ifBlank { if (p.phase == FlashPhase.FAILED) "Flash failed while talking to the USB reader" else "" }
                     _state.update {
                         it.copy(
-                            progress = if (failed) p.copy(error = null) else p,
-                            error = p.error?.message
+                            progress = p.copy(message = msg),
+                            error = if (p.phase == FlashPhase.FAILED) msg else p.error?.message
                         )
                     }
                 }
