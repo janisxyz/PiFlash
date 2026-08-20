@@ -9,7 +9,8 @@ data class SelectedImage(
     val uri: Uri,
     val displayName: String,
     val sizeBytes: Long,
-    val compression: ImageCompression
+    val compression: ImageCompression,
+    val uncompressedBytes: Long = -1L
 )
 
 data class UsbStorageDevice(
@@ -37,13 +38,10 @@ data class PiConfiguration(
     val timezone: String = "Europe/Zurich",
     val locale: String = "en_GB.UTF-8",
     val keyboardLayout: String = "ch",
-    /** Run apt-get update && apt-get -y upgrade after network is up on first boot. */
     val aptUpdateUpgrade: Boolean = false,
-    /** Install Coolify (requires 64-bit OS + internet). Runs after network is up. */
     val installCoolify: Boolean = false
 )
 
-/** A named headless-setup snapshot. Built-in templates have [builtIn] = true and are not persisted. */
 data class ConfigPreset(
     val id: String,
     val name: String,
