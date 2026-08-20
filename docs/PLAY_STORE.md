@@ -4,7 +4,7 @@ Privacy policy URL (after Pages deploys):
 
 https://janisxyz.github.io/PiFlash/
 
-Package: `ch.leftclick.piflash`  
+Package: `piflash.shizoghost.com`  
 Version: `1.0.0` (`versionCode` 3)  
 Category: Tools  
 Default language: English (United States)
@@ -33,6 +33,8 @@ Add GitHub Actions secrets (never commit the jks):
 Then run workflow **Release AAB** → download `app-release.aab`.
 
 In Play Console: Create app → enroll **Play App Signing** → upload the AAB as the first artifact.
+
+The Play package name is `piflash.shizoghost.com` (`applicationId`). Kotlin/R namespace stays `ch.leftclick.piflash`.
 
 ## 3. Store listing copy
 

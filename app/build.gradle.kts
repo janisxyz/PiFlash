@@ -8,7 +8,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "ch.leftclick.piflash"
+        applicationId = "piflash.shizoghost.com"
         minSdk = 26
         targetSdk = 35
         versionCode = 3

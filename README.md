@@ -4,6 +4,8 @@ Flash and configure Raspberry Pi OS from your Android phone over USB-C.
 
 Independent tool — not affiliated with Raspberry Pi Ltd.
 
+Play package name: `piflash.shizoghost.com`
+
 ## Play Store
 
 Step-by-step publish guide: [docs/PLAY_STORE.md](docs/PLAY_STORE.md)
