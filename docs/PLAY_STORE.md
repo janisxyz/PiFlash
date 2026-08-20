@@ -5,7 +5,7 @@ Privacy policy URL (after Pages deploys):
 https://janisxyz.github.io/PiFlash/
 
 Package: `piflash.shizoghost.com`  
-Version: `1.0.0` (`versionCode` 3)  
+Version: `3.1` (`versionCode` 4)  
 Category: Tools  
 Default language: English (United States)
 
