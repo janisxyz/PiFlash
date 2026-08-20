@@ -77,27 +77,50 @@ Do **not** round the Play icon. Google applies the mask.
 
 Do not use the Raspberry Pi berry logo. Nominative use of the words “Raspberry Pi OS” in the description is fine with the unaffiliated disclaimer already in the listing.
 
-## 9. Auto-upload from GitHub (internal testing)
+## 9. Hook Play Developer API to GitHub Actions
 
-Play Console has no “Connect GitHub” switch. GitHub Actions uses the Play Developer API.
+Play Console has no GitHub button. A Google Cloud **service account** calls the Play API; the **Release AAB** workflow uploads the signed AAB.
 
-Do this once:
+### A. Google Cloud (once)
 
-1. [Google Cloud Console](https://console.cloud.google.com/) → create or pick a project.
-2. Enable **Google Play Android Developer API**.
-3. IAM → Service accounts → Create (`piflash-play-upload`).
-4. Keys → Add key → JSON. Download the file.
-5. Play Console → **Users and permissions** → Invite the service account email.
-   Grant at least: **View app information**, **Release to testing tracks**, **Manage testing tracks**.
-6. Wait up to **24 hours** after the invite (API 403 until it propagates).
-7. GitHub → PiFlash → Settings → Secrets → Actions → New secret:
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and pick/create a project (any name, e.g. `piflash-play`).
+2. APIs & Services → Library → enable **Google Play Android Developer API**.
+3. IAM & Admin → Service accounts → **Create service account**
+   - Name: `piflash-play-upload`
+   - Skip extra roles
+4. Open the account → Keys → Add key → **JSON**. Download the file. Keep it off git.
+
+### B. Play Console (once)
+
+1. [Play Console](https://play.google.com/console) → **Users and permissions** → Invite user.
+2. Email = the service account (`piflash-play-upload@YOUR-PROJECT.iam.gserviceaccount.com`).
+3. App: PiFlash (`piflash.shizoghost.com`).
+4. Permissions (minimum):
+   - View app information and download bulk reports
+   - View financial data, orders, and cancellation survey responses — **off**
+   - **Releases** → Release to testing tracks (and, later, production if you want)
+   - Manage testing tracks and edit testers
+5. Send invite. Wait up to **24 hours** before the API works (403 until then).
+
+### C. GitHub secret (once)
+
+Repo → Settings → Secrets and variables → Actions → New repository secret:
 
 | Secret | Value |
 |--------|--------|
-| `PLAY_SERVICE_ACCOUNT_JSON` | entire JSON file, paste as-is |
+| `PLAY_SERVICE_ACCOUNT_JSON` | entire JSON file, paste as-is (starts with `{`) |
 
-After that, every **Release AAB** run on `main` uploads the signed AAB to the **internal** track (`status: completed`).
+Keep the existing signing secrets too: `PIFLASH_STORE_BASE64`, `PIFLASH_STORE_PASSWORD`, `PIFLASH_KEY_ALIAS`, `PIFLASH_KEY_PASSWORD`.
 
-Manual override: Actions → Release AAB → Run workflow → choose `internal` or `production`.
+### D. What the workflow does
 
-Do **not** use `production` until closed testing + the 12 testers / 14 days gate is done.
+`.github/workflows/release-aab.yml`
+
+- Push to `main` **or** Actions → **Release AAB** → Run workflow
+- Builds signed `app-release.aab`
+- If `PLAY_SERVICE_ACCOUNT_JSON` is set, uploads to Play **internal** (`completed`)
+- Manual run lets you pick `internal` or `production`
+
+Until the 12 testers / 14-day closed-test gate is done, leave the dropdown on **internal**.
+
+If a run says skip Play upload, the secret is missing. If it 403s, the service account invite has not propagated yet.
