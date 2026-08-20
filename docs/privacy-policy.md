@@ -1,8 +1,8 @@
 # Privacy Policy for PiFlash
 
 **Effective date:** 20 August 2026  
-**Developer:** Leftclick AG  
-**Contact:** via [leftclick.ch](https://leftclick.ch)
+**Developer:** Janis Schelling (shizoghost)  
+**Contact:** [shizoghost@exdonuts.com](mailto:shizoghost@exdonuts.com)
 
 PiFlash is a local utility. It flashes a Raspberry Pi OS image from your phone to a USB-connected SD card writer and optionally writes first-boot configuration files.
 
