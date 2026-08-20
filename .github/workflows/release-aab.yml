@@ -129,13 +129,7 @@ jobs:
             echo "PIFLASH_KEY_PASSWORD=${SECRET_KEY_PASSWORD}" >> "$GITHUB_ENV"
           else
             echo "No upload keystore secret — generating a CI keystore for this run"
-            keytool -genkeypair -noprompt \\
-              -keystore "$KS" \\
-              -storepass android \\
-              -keypass android \\
-              -alias piflash \\
-              -keyalg RSA -keysize 2048 -validity 10000 \\
-              -dname "CN=PiFlash CI, OU=Leftclick, O=Leftclick AG, L=Basel, C=CH"
+            keytool -genkeypair -noprompt -keystore "$KS" -storepass android -keypass android -alias piflash -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=PiFlash CI, OU=Leftclick, O=Leftclick AG, L=Basel, C=CH"
             echo "PIFLASH_STORE_PASSWORD=android" >> "$GITHUB_ENV"
             echo "PIFLASH_KEY_ALIAS=piflash" >> "$GITHUB_ENV"
             echo "PIFLASH_KEY_PASSWORD=android" >> "$GITHUB_ENV"
