@@ -67,17 +67,24 @@ class UsbStorageManager(private val context: Context) {
     fun requestPermission(device: UsbDevice) {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+        val intent = Intent(ACTION_USB_PERMISSION).apply {
+            setPackage(context.packageName)
+            putExtra(UsbManager.EXTRA_DEVICE, device)
+        }
         val pi = PendingIntent.getBroadcast(
             context,
-            0,
-            Intent(ACTION_USB_PERMISSION).setPackage(context.packageName),
+            device.deviceId,
+            intent,
             flags
         )
         usbManager.requestPermission(device, pi)
     }
 
     fun openDevice(device: UsbDevice) = usbManager.openDevice(device)
-        ?: throw IllegalStateException("Could not open USB device. Grant permission first.")
+        ?: throw IllegalStateException(
+            "Could not open USB device. Grant permission first." +
+                if (UsbOem.quirkyUsbStack) "\n\n${UsbOem.otgHint}" else ""
+        )
 
     private fun isMassStorage(device: UsbDevice): Boolean {
         if (device.deviceClass == USB_CLASS_MASS_STORAGE) return true
