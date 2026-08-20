@@ -46,8 +46,8 @@ jobs:
       - name: Version for this run
         run: |
           echo "PIFLASH_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "PIFLASH_VERSION_NAME=3.2.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "versionName 3.2.${{ github.run_number }} / versionCode ${{ github.run_number }}"
+          echo "PIFLASH_VERSION_NAME=3.3.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "versionName 3.3.${{ github.run_number }} / versionCode ${{ github.run_number }}"
 
       - name: Resolve Play track
         run: |
@@ -90,7 +90,6 @@ jobs:
           if not text:
               text = f"PiFlash {os.environ.get('PIFLASH_VERSION_NAME', '')}"
 
-          # Google Play per-locale release notes max is 500 characters.
           play = text
           if len(play) > 500:
               play = play[:497].rsplit("\n", 1)[0].rstrip()
@@ -149,8 +148,8 @@ jobs:
       - name: Publish GitHub Release with AAB
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: aab-v3.2-${{ github.run_number }}
-          name: PiFlash 3.2.${{ github.run_number }} AAB
+          tag_name: aab-v3.3-${{ github.run_number }}
+          name: PiFlash 3.3.${{ github.run_number }} AAB
           body_path: ${{ env.RELEASE_NOTES_FILE }}
           files: app/build/outputs/bundle/release/*.aab
           fail_on_unmatched_files: true

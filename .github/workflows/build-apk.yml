@@ -38,8 +38,8 @@ jobs:
       - name: Version for this run
         run: |
           echo "PIFLASH_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "PIFLASH_VERSION_NAME=3.2.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "versionName 3.2.${{ github.run_number }} / versionCode ${{ github.run_number }}"
+          echo "PIFLASH_VERSION_NAME=3.3.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "versionName 3.3.${{ github.run_number }} / versionCode ${{ github.run_number }}"
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
@@ -56,11 +56,12 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: apk-v3.2-${{ github.run_number }}
-          name: PiFlash 3.2.${{ github.run_number }} (debug APK)
+          tag_name: apk-v3.3-${{ github.run_number }}
+          name: PiFlash 3.3.${{ github.run_number }} (debug APK)
           body: |
-            Debug APK from GitHub Actions (3.2.${{ github.run_number }}).
+            Debug APK from GitHub Actions (3.3.${{ github.run_number }}).
             Sideload and allow unknown sources. USB host required.
+            Confirm this version in Settings before reporting SCSI errors.
           files: app/build/outputs/apk/debug/*.apk
           fail_on_unmatched_files: true
           generate_release_notes: true

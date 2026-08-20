@@ -11,8 +11,8 @@ android {
         applicationId = "piflash.shizoghost.com"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("PIFLASH_VERSION_CODE")?.toIntOrNull() ?: 5
-        versionName = System.getenv("PIFLASH_VERSION_NAME") ?: "3.2"
+        versionCode = System.getenv("PIFLASH_VERSION_CODE")?.toIntOrNull() ?: 8
+        versionName = System.getenv("PIFLASH_VERSION_NAME") ?: "3.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
