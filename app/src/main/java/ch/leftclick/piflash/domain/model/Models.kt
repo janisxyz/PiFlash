@@ -36,7 +36,11 @@ data class PiConfiguration(
     val country: String = "CH",
     val timezone: String = "Europe/Zurich",
     val locale: String = "en_GB.UTF-8",
-    val keyboardLayout: String = "ch"
+    val keyboardLayout: String = "ch",
+    /** Run apt-get update && apt-get -y upgrade after network is up on first boot. */
+    val aptUpdateUpgrade: Boolean = false,
+    /** Install Coolify (requires 64-bit OS + internet). Runs after network is up. */
+    val installCoolify: Boolean = false
 )
 
 enum class ImageCompression { NONE, XZ, GZIP, UNKNOWN }

@@ -53,6 +53,9 @@ class PiOsConfigurator {
     private fun firstRun(c: PiConfiguration): String = buildString {
         appendLine("#!/bin/bash")
         appendLine("set +e")
+        appendLine("LOG=/var/log/piflash-firstboot.log")
+        appendLine("exec > >(tee -a \"\$LOG\") 2>&1")
+        appendLine("echo \"[piflash] first-boot $(date -Is)\"")
         appendLine("hostnamectl set-hostname '${escape(c.hostname)}'")
         appendLine("echo '${escape(c.hostname)}' > /etc/hostname")
         appendLine("timedatectl set-timezone '${escape(c.timezone)}' || true")
@@ -67,9 +70,70 @@ class PiOsConfigurator {
             }
             if (c.sshAuthMode == SshAuthMode.KEY) {
                 appendLine("sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config")
+                appendLine("systemctl reload ssh || systemctl restart ssh || true")
             }
         }
+
+        val needsNetwork = c.aptUpdateUpgrade || c.installCoolify
+        if (needsNetwork) {
+            appendLine("mkdir -p /usr/local/bin /var/lib/piflash")
+            appendLine("cat > /usr/local/bin/piflash-postboot.sh << 'PIFLASH_EOF'")
+            appendLine("#!/bin/bash")
+            appendLine("set +e")
+            appendLine("LOG=/var/log/piflash-firstboot.log")
+            appendLine("exec >>\"\$LOG\" 2>&1")
+            appendLine("echo \"[piflash] post-boot started $(date -Is)\"")
+            appendLine("# Wait for network (up to ~5 minutes)")
+            appendLine("for i in \$(seq 1 60); do")
+            appendLine("  if ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 || ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then")
+            appendLine("    echo \"[piflash] network is up\"")
+            appendLine("    break")
+            appendLine("  fi")
+            appendLine("  sleep 5")
+            appendLine("done")
+            if (c.aptUpdateUpgrade) {
+                appendLine("echo \"[piflash] apt update && upgrade\"")
+                appendLine("export DEBIAN_FRONTEND=noninteractive")
+                appendLine("apt-get update -y")
+                appendLine("apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade")
+                appendLine("echo \"[piflash] apt upgrade finished\"")
+            }
+            if (c.installCoolify) {
+                appendLine("echo \"[piflash] installing Coolify\"")
+                appendLine("# Official installer: installs Docker if needed, then Coolify")
+                appendLine("curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash")
+                appendLine("echo \"[piflash] Coolify install finished (UI on :8000)\"")
+            }
+            appendLine("rm -f /var/lib/piflash/postboot-pending")
+            appendLine("systemctl disable piflash-postboot.service 2>/dev/null || true")
+            appendLine("echo \"[piflash] post-boot done $(date -Is)\"")
+            appendLine("PIFLASH_EOF")
+            appendLine("chmod +x /usr/local/bin/piflash-postboot.sh")
+            appendLine("touch /var/lib/piflash/postboot-pending")
+            appendLine("cat > /etc/systemd/system/piflash-postboot.service << 'UNIT_EOF'")
+            appendLine("[Unit]")
+            appendLine("Description=PiFlash first-boot extras (apt / Coolify)")
+            appendLine("After=network-online.target")
+            appendLine("Wants=network-online.target")
+            appendLine("ConditionPathExists=/var/lib/piflash/postboot-pending")
+            appendLine("")
+            appendLine("[Service]")
+            appendLine("Type=oneshot")
+            appendLine("ExecStart=/usr/local/bin/piflash-postboot.sh")
+            appendLine("TimeoutStartSec=0")
+            appendLine("RemainAfterExit=yes")
+            appendLine("")
+            appendLine("[Install]")
+            appendLine("WantedBy=multi-user.target")
+            appendLine("UNIT_EOF")
+            appendLine("systemctl daemon-reload")
+            appendLine("systemctl enable piflash-postboot.service")
+            appendLine("# Kick it off if network is already up; otherwise it runs after next multi-user reach")
+            appendLine("systemctl start piflash-postboot.service || true")
+        }
+
         appendLine("rm -f /boot/firstrun.sh /boot/firmware/firstrun.sh")
+        appendLine("echo \"[piflash] firstrun complete\"")
         appendLine("exit 0")
     }
 
