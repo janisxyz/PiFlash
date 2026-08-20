@@ -5,10 +5,14 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
+import android.hardware.usb.UsbRequest
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.delay
+import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class BlockDeviceWriter(
     private val connection: UsbDeviceConnection,
@@ -25,8 +29,12 @@ class BlockDeviceWriter(
 
     private var activeLun: Int = lun
     private var tag: Int = 1
-    private val ioTimeoutMs = 8_000
+    private val ioTimeoutMs = 5_000
     private val initTimeoutMs = 1_500
+    private val outRequest = UsbRequest()
+    private val inRequest = UsbRequest()
+    private val xferLock = Any()
+    private var requestsReady = false
 
     suspend fun initialize(onStatus: suspend (String) -> Unit = {}) {
         val deadline = SystemClock.elapsedRealtime() + 18_000L
@@ -40,6 +48,7 @@ class BlockDeviceWriter(
             runCatching { connection.setInterface(usbInterface) }
         }
         if (UsbOem.quirkyUsbStack) delay(200)
+        prepareRequests()
         onStatus("Resetting USB reader…")
         massStorageReset()
         val maxLun = getMaxLun()
@@ -123,8 +132,9 @@ class BlockDeviceWriter(
     }
 
     private fun preferredWriteBlocks(total: Int): Int {
-        val maxByPacket = ((bulkOut.maxPacketSize * 64) / blockSize).coerceAtLeast(1)
-        return minOf(total, maxByPacket, 256)
+        val maxByPacket = ((bulkOut.maxPacketSize * 32) / blockSize).coerceAtLeast(1)
+        val cap = if (UsbOem.quirkyUsbStack) 32 else 256
+        return minOf(total, maxByPacket, cap)
     }
 
     private fun inquiry(useLun: Int) {
@@ -267,7 +277,7 @@ class BlockDeviceWriter(
     private fun sendCbw(dataLength: Int, directionOut: Boolean, cdb: ByteArray, lun: Int, timeoutMs: Int): Int {
         val thisTag = tag++
         val packet = Scsi.buildCbw(thisTag, dataLength, directionOut, lun, cdb)
-        val n = connection.bulkTransfer(bulkOut, packet, Scsi.CBW_SIZE, timeoutMs)
+        val n = bulk(bulkOut, packet, Scsi.CBW_SIZE, timeoutMs)
         if (n != Scsi.CBW_SIZE) {
             clearHalt(bulkOut)
             throw ScsiException("CBW transfer failed (n=$n)", retryable = true)
@@ -281,7 +291,7 @@ class BlockDeviceWriter(
         var tries = 0
         val tmp = ByteArray(Scsi.CSW_SIZE)
         while (got < Scsi.CSW_SIZE && tries < 3) {
-            val n = connection.bulkTransfer(bulkIn, tmp, Scsi.CSW_SIZE - got, timeoutMs)
+            val n = bulk(bulkIn, tmp, Scsi.CSW_SIZE - got, timeoutMs)
             if (n == -1) { clearHalt(bulkIn); tries++; continue }
             if (n <= 0) { tries++; continue }
             System.arraycopy(tmp, 0, raw, got, minOf(n, Scsi.CSW_SIZE - got))
@@ -300,14 +310,14 @@ class BlockDeviceWriter(
     private fun requestSense(lun: Int): Sense {
         val thisTag = tag++
         val packet = Scsi.buildCbw(thisTag, 18, false, lun, Scsi.requestSense())
-        val sent = connection.bulkTransfer(bulkOut, packet, Scsi.CBW_SIZE, initTimeoutMs)
+        val sent = bulk(bulkOut, packet, Scsi.CBW_SIZE, initTimeoutMs)
         if (sent != Scsi.CBW_SIZE) {
             clearHalt(bulkOut)
             return Sense(0, -1, 0, 0, ByteArray(0))
         }
         val data = ByteArray(18)
         val bounce = ByteArray(18)
-        val n = connection.bulkTransfer(bulkIn, bounce, 18, initTimeoutMs)
+        val n = bulk(bulkIn, bounce, 18, initTimeoutMs)
         if (n > 0) {
             if (Scsi.isCsw(bounce)) {
                 return Sense(0, -1, 0, 0, ByteArray(0))
@@ -326,7 +336,7 @@ class BlockDeviceWriter(
         while (sent < length) {
             val nwant = minOf(length - sent, bounce.size)
             System.arraycopy(data, sent, bounce, 0, nwant)
-            val n = connection.bulkTransfer(bulkOut, bounce, nwant, timeoutMs)
+            val n = bulk(bulkOut, bounce, nwant, timeoutMs)
             if (n <= 0) {
                 clearHalt(bulkOut)
                 if (++stalls > 3) throw ScsiException("USB write failed at offset $sent (n=$n)", retryable = true)
@@ -342,7 +352,7 @@ class BlockDeviceWriter(
         var stalls = 0
         while (rec < length) {
             val nwant = minOf(length - rec, bounce.size)
-            val n = connection.bulkTransfer(bulkIn, bounce, nwant, timeoutMs)
+            val n = bulk(bulkIn, bounce, nwant, timeoutMs)
             if (n <= 0) {
                 clearHalt(bulkIn)
                 if (++stalls > 3) throw ScsiException("USB read failed (n=$n)", retryable = true)
@@ -381,7 +391,80 @@ class BlockDeviceWriter(
 
     private fun resetRecovery() = massStorageReset()
 
+    private fun prepareRequests() {
+        if (requestsReady) return
+        if (!outRequest.initialize(connection, bulkOut) || !inRequest.initialize(connection, bulkIn)) {
+            throw ScsiException("UsbRequest.initialize failed")
+        }
+        requestsReady = true
+    }
+
+    private fun bulk(ep: UsbEndpoint, data: ByteArray, length: Int, timeoutMs: Int): Int {
+        val box = AtomicInteger(Int.MIN_VALUE)
+        val fail = AtomicReference<Throwable>()
+        val t = Thread({
+            try {
+                val n = if (UsbOem.quirkyUsbStack) {
+                    requestBulk(ep, data, length, timeoutMs)
+                } else {
+                    connection.bulkTransfer(ep, data, length, timeoutMs)
+                }
+                box.set(n)
+            } catch (e: Throwable) {
+                fail.set(e)
+            }
+        }, "piflash-usb")
+        t.start()
+        t.join((timeoutMs + 400).toLong())
+        if (t.isAlive) {
+            runCatching { inRequest.cancel() }
+            runCatching { outRequest.cancel() }
+            Log.e(TAG, "USB hung ep=0x${Integer.toHexString(ep.address)} len=$length after ${timeoutMs}ms")
+            throw ScsiException(
+                "USB transfer hung (HyperOS ignored timeout). Force-stop PiFlash, unplug the reader, toggle OTG, retry.",
+                retryable = true
+            )
+        }
+        fail.get()?.let { throw it }
+        return box.get()
+    }
+
+    private fun requestBulk(ep: UsbEndpoint, data: ByteArray, length: Int, timeoutMs: Int): Int {
+        prepareRequests()
+        val out = ep.direction == UsbConstants.USB_DIR_OUT
+        val req = if (out) outRequest else inRequest
+        val buf = ByteBuffer.allocateDirect(length)
+        if (out) {
+            buf.put(data, 0, length)
+            buf.flip()
+        } else {
+            buf.clear()
+            buf.limit(length)
+        }
+        synchronized(xferLock) {
+            if (!req.queue(buf)) {
+                throw ScsiException("USB queue failed", retryable = true)
+            }
+            val done = connection.requestWait(timeoutMs.toLong())
+            if (done == null) {
+                req.cancel()
+                runCatching { connection.requestWait(50) }
+                throw ScsiException("USB timed out after ${timeoutMs}ms", retryable = true)
+            }
+            val n = buf.position()
+            if (!out && n > 0) {
+                buf.position(0)
+                val take = minOf(n, data.size)
+                buf.get(data, 0, take)
+                return take
+            }
+            return if (out) length else n
+        }
+    }
+
     override fun close() {
+        runCatching { inRequest.close() }
+        runCatching { outRequest.close() }
         runCatching { connection.releaseInterface(usbInterface) }
         connection.close()
     }
