@@ -11,10 +11,22 @@ android {
         applicationId = "ch.leftclick.piflash"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    signingConfigs {
+        create("release") {
+            val store = System.getenv("PIFLASH_STORE_FILE")
+            if (!store.isNullOrBlank()) {
+                storeFile = file(store)
+                storePassword = System.getenv("PIFLASH_STORE_PASSWORD")
+                keyAlias = System.getenv("PIFLASH_KEY_ALIAS")
+                keyPassword = System.getenv("PIFLASH_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -25,6 +37,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            val rel = signingConfigs.getByName("release")
+            if (rel.storeFile != null) {
+                signingConfig = rel
+            }
         }
         debug {
             isMinifyEnabled = false

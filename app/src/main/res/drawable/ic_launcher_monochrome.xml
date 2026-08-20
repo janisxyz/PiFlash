@@ -4,16 +4,10 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- White microSD card (safe zone ~21–87) -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M40,28 L67,28 C71.2,28 74.5,31.3 74.5,35.5 L74.5,76.5 C74.5,80.7 71.2,84 67,84 L41,84 C36.8,84 33.5,80.7 33.5,76.5 L33.5,39.5 Z" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M40,28 L67,28 C71.2,28 74.5,31.3 74.5,35.5 L74.5,76.5 C74.5,80.7 71.2,84 67,84 L41,84 C36.8,84 33.5,80.7 33.5,76.5 L33.5,39.5 Z" />
-    <!-- Contact pads -->
-    <path android:fillColor="#C51A4A" android:pathData="M43,33.2 h6.2 v6.2 h-6.2z" />
-    <path android:fillColor="#C51A4A" android:pathData="M51.9,33.2 h6.2 v6.2 h-6.2z" />
-    <path android:fillColor="#C51A4A" android:pathData="M60.8,33.2 h6.2 v6.2 h-6.2z" />
-    <!-- Lightning bolt -->
-    <path
-        android:fillColor="#F5C518"
         android:pathData="M59.2,44 L47.8,61.8 H54.4 L50.2,76.5 L66.8,56.2 H59.6 L64.6,44 Z" />
 </vector>

@@ -46,6 +46,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Build unsigned release bundle
+        run: gradle :app:bundleRelease --no-daemon --stacktrace
+        continue-on-error: true
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PiFlash-release-aab
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Publish GitHub Release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
