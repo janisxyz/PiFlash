@@ -9,12 +9,15 @@ import androidx.lifecycle.viewModelScope
 import ch.leftclick.piflash.domain.flash.FlashSession
 import ch.leftclick.piflash.domain.image.ImageAnalyzer
 import ch.leftclick.piflash.domain.image.ImageDecompressor
+import ch.leftclick.piflash.domain.model.ConfigPreset
+import ch.leftclick.piflash.domain.model.ConfigTemplates
 import ch.leftclick.piflash.domain.model.FlashError
 import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.FlashProgress
 import ch.leftclick.piflash.domain.model.PiConfiguration
 import ch.leftclick.piflash.domain.model.SelectedImage
 import ch.leftclick.piflash.domain.model.UsbStorageDevice
+import ch.leftclick.piflash.domain.preset.PresetStore
 import ch.leftclick.piflash.domain.usb.UsbStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,12 +26,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 data class UiState(
     val image: SelectedImage? = null,
     val devices: List<UsbStorageDevice> = emptyList(),
     val selectedDevice: UsbStorageDevice? = null,
     val config: PiConfiguration = PiConfiguration(),
+    val templates: List<ConfigPreset> = ConfigTemplates.all,
+    val presets: List<ConfigPreset> = emptyList(),
+    val activePresetId: String? = null,
     val progress: FlashProgress = FlashProgress(FlashPhase.IDLE),
     val error: String? = null,
     val acknowledgedErase: Boolean = false
@@ -38,6 +45,7 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
     private val usb = UsbStorageManager(app)
     private val analyzer = ImageAnalyzer(app)
     private val session = FlashSession(usb, ImageDecompressor(app))
+    private val presetStore = PresetStore(app.filesDir)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -45,6 +53,15 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
     private var flashJob: Job? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            val (saved, last) = presetStore.load()
+            _state.update {
+                it.copy(
+                    presets = saved,
+                    config = last ?: it.config
+                )
+            }
+        }
         viewModelScope.launch {
             usb.observeDevices().collect { list ->
                 _state.update { prev ->
@@ -111,7 +128,56 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateConfig(transform: (PiConfiguration) -> PiConfiguration) {
-        _state.update { it.copy(config = transform(it.config)) }
+        _state.update { it.copy(config = transform(it.config), activePresetId = null) }
+    }
+
+    fun applyPreset(preset: ConfigPreset) {
+        val current = _state.value.config
+        val incoming = preset.config
+        val next = if (preset.builtIn) {
+            // Templates fill hostname / first-boot flags; keep secrets already typed in the form.
+            incoming.copy(
+                password = incoming.password.ifBlank { current.password },
+                sshPublicKey = incoming.sshPublicKey.ifBlank { current.sshPublicKey },
+                wifiSsid = if (incoming.enableWifi) incoming.wifiSsid.ifBlank { current.wifiSsid } else incoming.wifiSsid,
+                wifiPassword = if (incoming.enableWifi) incoming.wifiPassword.ifBlank { current.wifiPassword } else incoming.wifiPassword
+            )
+        } else {
+            incoming
+        }
+        _state.update { it.copy(config = next, activePresetId = preset.id, error = null) }
+    }
+
+    fun savePreset(name: String) {
+        val trimmed = name.trim().ifBlank { _state.value.config.hostname.ifBlank { "Preset" } }
+        val current = _state.value.config
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = _state.value.presets.find { it.name.equals(trimmed, ignoreCase = true) }
+            val preset = ConfigPreset(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                name = trimmed,
+                config = current,
+                savedAt = System.currentTimeMillis(),
+                builtIn = false
+            )
+            val next = (_state.value.presets.filter { it.id != preset.id } + preset)
+                .sortedBy { it.name.lowercase() }
+            presetStore.save(next, current)
+            _state.update { it.copy(presets = next, activePresetId = preset.id) }
+        }
+    }
+
+    fun deletePreset(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val next = _state.value.presets.filter { it.id != id }
+            presetStore.save(next, _state.value.config)
+            _state.update {
+                it.copy(
+                    presets = next,
+                    activePresetId = if (it.activePresetId == id) null else it.activePresetId
+                )
+            }
+        }
     }
 
     fun startFlash() {
@@ -126,6 +192,9 @@ class FlashViewModel(app: Application) : AndroidViewModel(app) {
             usb.requestPermission(device.device)
             _state.update { it.copy(error = "Grant USB permission, then try again") }
             return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            presetStore.save(s.presets, s.config)
         }
         _state.update {
             it.copy(

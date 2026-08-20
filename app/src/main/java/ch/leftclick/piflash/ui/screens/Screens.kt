@@ -5,6 +5,7 @@ import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,14 +14,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,6 +32,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,6 +45,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -46,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import ch.leftclick.piflash.domain.model.ConfigPreset
 import ch.leftclick.piflash.domain.model.FlashPhase
 import ch.leftclick.piflash.domain.model.PiConfiguration
 import ch.leftclick.piflash.domain.model.SshAuthMode
@@ -235,12 +246,19 @@ fun DeviceScreen(
 fun ConfigScreen(
     state: UiState,
     onChange: ((PiConfiguration) -> PiConfiguration) -> Unit,
+    onApplyPreset: (ConfigPreset) -> Unit,
+    onSavePreset: (String) -> Unit,
+    onDeletePreset: (String) -> Unit,
     onBack: () -> Unit,
     onFlash: () -> Unit
 ) {
     val c = state.config
     fun set(block: PiConfiguration.() -> PiConfiguration) = onChange { it.block() }
     val canFlash = c.username.isNotBlank() && (c.password.isNotBlank() || c.sshPublicKey.isNotBlank())
+    var showSave by remember { mutableStateOf(false) }
+    var saveName by remember { mutableStateOf("") }
+    var pendingDelete by remember { mutableStateOf<ConfigPreset?>(null) }
+
     Scaffold(topBar = {
         TopAppBar(title = { Text("Headless setup") }, navigationIcon = {
             TextButton(onClick = onBack) { Text("Back") }
@@ -250,6 +268,76 @@ fun ConfigScreen(
             Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            Text("Templates", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Start from a template, then save your own presets for the next card.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                state.templates.forEach { preset ->
+                    FilterChip(
+                        selected = state.activePresetId == preset.id,
+                        onClick = { onApplyPreset(preset) },
+                        label = { Text(preset.name) }
+                    )
+                }
+            }
+
+            Text("Your presets", style = MaterialTheme.typography.titleSmall)
+            if (state.presets.isEmpty()) {
+                Text(
+                    "None yet. Fill the form, then save it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    state.presets.forEach { preset ->
+                        InputChip(
+                            selected = state.activePresetId == preset.id,
+                            onClick = { onApplyPreset(preset) },
+                            label = { Text(preset.name) },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { pendingDelete = preset },
+                                    modifier = Modifier.size(18.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Delete ${preset.name}",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    saveName = state.presets.find { it.id == state.activePresetId }?.name
+                        ?: c.hostname.ifBlank { "Preset" }
+                    showSave = true
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (state.activePresetId != null && state.presets.any { it.id == state.activePresetId }) {
+                        "Update / save as preset"
+                    } else {
+                        "Save as preset"
+                    }
+                )
+            }
+
             OutlinedTextField(c.hostname, { v -> set { copy(hostname = v) } }, label = { Text("Hostname") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(c.username, { v -> set { copy(username = v) } }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
@@ -273,26 +361,87 @@ fun ConfigScreen(
                 Checkbox(checked = c.enableWifi, onCheckedChange = { v -> set { copy(enableWifi = v) } })
                 Text("Configure Wi-Fi")
             }
-            OutlinedTextField(c.wifiSsid, { v -> set { copy(wifiSsid = v) } }, label = { Text("SSID") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(c.wifiSsid, { v -> set { copy(wifiSsid = v) } }, label = { Text("SSID") }, modifier = Modifier.fillMaxWidth(), enabled = c.enableWifi)
             OutlinedTextField(
                 c.wifiPassword,
                 { v -> set { copy(wifiPassword = v) } },
                 label = { Text("Wi-Fi password") },
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = c.enableWifi
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA2, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA2) } }, label = { Text("WPA2") })
-                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA3, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA3) } }, label = { Text("WPA3") })
-                FilterChip(selected = c.wifiSecurity == WifiSecurity.OPEN, onClick = { set { copy(wifiSecurity = WifiSecurity.OPEN) } }, label = { Text("Open") })
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA2, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA2) } }, label = { Text("WPA2") }, enabled = c.enableWifi)
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.WPA3, onClick = { set { copy(wifiSecurity = WifiSecurity.WPA3) } }, label = { Text("WPA3") }, enabled = c.enableWifi)
+                FilterChip(selected = c.wifiSecurity == WifiSecurity.OPEN, onClick = { set { copy(wifiSecurity = WifiSecurity.OPEN) } }, label = { Text("Open") }, enabled = c.enableWifi)
             }
             OutlinedTextField(c.country, { v -> set { copy(country = v.uppercase()) } }, label = { Text("Country") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(c.timezone, { v -> set { copy(timezone = v) } }, label = { Text("Timezone") }, modifier = Modifier.fillMaxWidth())
+            Text("First boot")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = c.aptUpdateUpgrade, onCheckedChange = { v -> set { copy(aptUpdateUpgrade = v) } })
+                Text("apt update && upgrade after network is up")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = c.installCoolify, onCheckedChange = { v -> set { copy(installCoolify = v) } })
+                Text("Install Coolify (64-bit OS, needs internet)")
+            }
             Spacer(Modifier.height(8.dp))
             Button(onClick = onFlash, enabled = canFlash, modifier = Modifier.fillMaxWidth()) {
                 Text("Flash SD card")
             }
         }
+    }
+
+    if (showSave) {
+        AlertDialog(
+            onDismissRequest = { showSave = false },
+            title = { Text("Save preset") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Stored on this phone only. Same name overwrites.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedTextField(
+                        value = saveName,
+                        onValueChange = { saveName = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onSavePreset(saveName)
+                        showSave = false
+                    },
+                    enabled = saveName.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSave = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    pendingDelete?.let { preset ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete \"${preset.name}\"?") },
+            text = { Text("This only removes the saved preset on this phone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeletePreset(preset.id)
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 

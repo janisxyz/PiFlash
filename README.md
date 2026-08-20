@@ -6,6 +6,8 @@ Independent tool — not affiliated with Raspberry Pi Ltd.
 
 Play package name: `piflash.shizoghost.com`
 
+Headless setup supports templates (Home lab, Coolify host, Headless LAN) and named presets stored only on the phone.
+
 ## Play Store
 
 Step-by-step publish guide: [docs/PLAY_STORE.md](docs/PLAY_STORE.md)

@@ -7,6 +7,8 @@ What you can do
 • Enable SSH with password, public key, or both
 • Configure Wi-Fi (WPA2 / WPA3 / open, hidden SSID, country code)
 • Set timezone, locale, and keyboard layout
+• Start from templates (Home lab, Coolify host, Headless LAN) and save named presets on the phone
+• Optionally run apt update/upgrade or install Coolify on first boot
 • Works fully offline. Nothing is uploaded.
 
 You need a USB-C SD card reader (or a phone that can act as USB host) and a Raspberry Pi OS image stored on the device.
