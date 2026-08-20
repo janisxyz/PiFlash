@@ -30,14 +30,14 @@ class BlockDeviceWriter(
     private var activeLun: Int = lun
     private var tag: Int = 1
     private val ioTimeoutMs = 5_000
-    private val initTimeoutMs = 1_500
+    private val initTimeoutMs = 2_000
     private val outRequest = UsbRequest()
     private val inRequest = UsbRequest()
     private val xferLock = Any()
     private var requestsReady = false
 
     suspend fun initialize(onStatus: suspend (String) -> Unit = {}) {
-        val deadline = SystemClock.elapsedRealtime() + 18_000L
+        val deadline = SystemClock.elapsedRealtime() + 20_000L
         fun timedOut() = SystemClock.elapsedRealtime() > deadline
 
         onStatus("Claiming USB interface…")
@@ -48,17 +48,16 @@ class BlockDeviceWriter(
             runCatching { connection.setInterface(usbInterface) }
         }
         if (UsbOem.quirkyUsbStack) delay(200)
-        prepareRequests()
-        onStatus("Resetting USB reader…")
-        massStorageReset()
-        val maxLun = getMaxLun()
+        val maxLun = runCatching { getMaxLun() }.getOrDefault(0)
         var last: ScsiException? = null
         var ready = false
         for (tryLun in 0..maxLun) {
             if (timedOut()) break
             try {
                 onStatus("Talking to reader (LUN $tryLun)…")
-                inquiry(tryLun)
+                runCatching { inquiry(tryLun) }.onFailure {
+                    Log.w(TAG, "INQUIRY LUN $tryLun failed: ${it.message}")
+                }
                 waitUntilReady(tryLun, onStatus, deadline)
                 activeLun = tryLun
                 ready = true
@@ -138,7 +137,7 @@ class BlockDeviceWriter(
     }
 
     private fun inquiry(useLun: Int) {
-        execute(Scsi.inquiry(), 36, false, inBuf = ByteArray(36), lun = useLun, retries = 3, timeoutMs = initTimeoutMs)
+        execute(Scsi.inquiry(), 36, false, inBuf = ByteArray(36), lun = useLun, retries = 2, timeoutMs = initTimeoutMs)
     }
 
     private suspend fun waitUntilReady(
@@ -290,14 +289,22 @@ class BlockDeviceWriter(
         var got = 0
         var tries = 0
         val tmp = ByteArray(Scsi.CSW_SIZE)
-        while (got < Scsi.CSW_SIZE && tries < 3) {
+        while (got < Scsi.CSW_SIZE && tries < 6) {
             val n = bulk(bulkIn, tmp, Scsi.CSW_SIZE - got, timeoutMs)
-            if (n == -1) { clearHalt(bulkIn); tries++; continue }
-            if (n <= 0) { tries++; continue }
+            if (n <= 0) {
+                clearHalt(bulkIn)
+                if (tries == 2) resetRecovery()
+                Thread.sleep(30L * (tries + 1))
+                tries++
+                continue
+            }
             System.arraycopy(tmp, 0, raw, got, minOf(n, Scsi.CSW_SIZE - got))
             got += n
         }
-        if (got < Scsi.CSW_SIZE) throw ScsiException("CSW transfer failed (n=$got)", retryable = true)
+        if (got < Scsi.CSW_SIZE) throw ScsiException(
+            "USB reader dropped the reply (CSW n=$got). Keep PiFlash on screen.",
+            retryable = true
+        )
         val csw = Scsi.parseCsw(raw)
         if (csw.signature != Scsi.CSW_SIGNATURE) {
             clearHalt(bulkIn)
@@ -311,7 +318,7 @@ class BlockDeviceWriter(
         val thisTag = tag++
         val packet = Scsi.buildCbw(thisTag, 18, false, lun, Scsi.requestSense())
         val sent = bulk(bulkOut, packet, Scsi.CBW_SIZE, initTimeoutMs)
-        if (sent != Scsi.CBW_SIZE) {
+        if (sent != Scsi.CSW_SIZE && sent != Scsi.CBW_SIZE) {
             clearHalt(bulkOut)
             return Sense(0, -1, 0, 0, ByteArray(0))
         }
@@ -373,6 +380,7 @@ class BlockDeviceWriter(
         if (r < 0) Log.w(TAG, "Bulk-Only reset returned $r")
         clearHalt(bulkIn)
         clearHalt(bulkOut)
+        requestsReady = false
         Thread.sleep(20)
     }
 
@@ -404,7 +412,7 @@ class BlockDeviceWriter(
         val fail = AtomicReference<Throwable>()
         val t = Thread({
             try {
-                val n = if (UsbOem.quirkyUsbStack) {
+                val n = if (UsbOem.quirkyUsbStack && length > 512) {
                     requestBulk(ep, data, length, timeoutMs)
                 } else {
                     connection.bulkTransfer(ep, data, length, timeoutMs)
