@@ -21,6 +21,7 @@ class BlockDeviceWriter(
     var capacityBytes: Long = 0L
         private set
 
+    private var activeLun: Int = lun
     private var tag: Int = 1
     private val timeoutMs = 15_000
     private val shortTimeoutMs = 5_000
@@ -34,13 +35,28 @@ class BlockDeviceWriter(
         }
         massStorageReset()
         val maxLun = getMaxLun()
-        val useLun = lun.coerceIn(0, maxLun)
-        inquiry(useLun)
-        waitUntilReady(useLun)
-        val (lastLba, size) = readCapacity(useLun)
+        var last: ScsiException? = null
+        var ready = false
+        for (tryLun in 0..maxLun) {
+            try {
+                inquiry(tryLun)
+                waitUntilReady(tryLun)
+                activeLun = tryLun
+                ready = true
+                break
+            } catch (e: ScsiException) {
+                last = e
+                if (e.asc == 0x3A && maxLun == 0) throw e
+                resetRecovery()
+            }
+        }
+        if (!ready) {
+            throw last ?: ScsiException("Reader never became ready", retryable = true)
+        }
+        val (lastLba, size) = readCapacity(activeLun)
         blockSize = size.coerceAtLeast(512)
         capacityBytes = (lastLba + 1L) * blockSize
-        if (isWriteProtected(useLun)) {
+        if (isWriteProtected(activeLun)) {
             throw ScsiException("The SD card is write-protected. Slide the lock off and retry.")
         }
     }
@@ -95,22 +111,22 @@ class BlockDeviceWriter(
     }
 
     private fun inquiry(useLun: Int) {
-        execute(Scsi.inquiry(), 36, false, inBuf = ByteArray(36), lun = useLun, retries = 3)
+        execute(Scsi.inquiry(), 36, false, inBuf = ByteArray(36), lun = useLun, retries = 8)
     }
 
     private fun waitUntilReady(useLun: Int) {
         var last: ScsiException? = null
-        repeat(20) { attempt ->
+        repeat(40) { attempt ->
             try {
                 execute(Scsi.testUnitReady(), 0, true, lun = useLun, retries = 0)
                 return
             } catch (e: ScsiException) {
                 last = e
                 if (e.asc == 0x3A) throw ScsiException(Scsi.senseMessage(e.senseKey, e.asc, e.ascq), e.senseKey, e.asc, e.ascq)
-                if (attempt == 5) {
+                if (attempt == 8) {
                     runCatching { execute(Scsi.startStopUnit(true), 0, true, lun = useLun, ignoreUnsupported = true) }
                 }
-                Thread.sleep((50L * (attempt + 1)).coerceAtMost(400L))
+                Thread.sleep((80L * (attempt + 1)).coerceAtMost(600L))
             }
         }
         val e = last
@@ -149,7 +165,7 @@ class BlockDeviceWriter(
         directionOut: Boolean,
         outBuf: ByteArray? = null,
         inBuf: ByteArray? = null,
-        lun: Int = this.lun,
+        lun: Int = this.activeLun,
         retries: Int = 2,
         ignoreUnsupported: Boolean = false
     ) {
@@ -158,28 +174,35 @@ class BlockDeviceWriter(
         repeat(attempts) { attempt ->
             try {
                 val expectedTag = sendCbw(dataLength, directionOut, cdb, lun)
+                var earlyCsw: Csw? = null
                 if (dataLength > 0) {
                     if (directionOut) bulkOutAll(outBuf ?: ByteArray(dataLength), dataLength)
-                    else bulkInAll(inBuf ?: ByteArray(dataLength), dataLength)
+                    else earlyCsw = bulkInAll(inBuf ?: ByteArray(dataLength), dataLength)
                 }
-                val csw = readCsw(expectedTag)
+                val csw = earlyCsw ?: readCsw(expectedTag)
                 when (csw.status) {
                     Scsi.STATUS_PASSED -> return
-                    Scsi.STATUS_FAILED -> {
+                    Scsi.STATUS_FAILED, Scsi.STATUS_PHASE_ERROR -> {
+                        if (csw.status == Scsi.STATUS_PHASE_ERROR) resetRecovery()
                         val sense = requestSense(lun)
                         if (ignoreUnsupported && sense.senseKey == Scsi.SENSE_ILLEGAL_REQUEST) return
-                        val ex = ScsiException(sense.message, sense.senseKey, sense.asc, sense.ascq, sense.retryable)
-                        if (sense.retryable && attempt < attempts - 1) {
+                        val retryable = sense.retryable || csw.status == Scsi.STATUS_PHASE_ERROR
+                        val ex = ScsiException(sense.message, sense.senseKey, sense.asc, sense.ascq, retryable)
+                        if (retryable && attempt < attempts - 1) {
                             Thread.sleep(40L * (attempt + 1))
                             lastError = ex
                         } else throw ex
                     }
-                    Scsi.STATUS_PHASE_ERROR -> {
-                        resetRecovery()
-                        lastError = ScsiException("SCSI phase error (CSW status=2)", retryable = true)
-                        if (attempt >= attempts - 1) throw lastError as ScsiException
+                    else -> {
+                        val sense = requestSense(lun)
+                        throw ScsiException(
+                            sense.message.ifBlank { "SCSI command failed (status=${csw.status})" },
+                            sense.senseKey,
+                            sense.asc,
+                            sense.ascq,
+                            retryable = true
+                        )
                     }
-                    else -> throw ScsiException("SCSI command failed, CSW status=${csw.status}")
                 }
             } catch (e: ScsiException) {
                 lastError = e
@@ -188,7 +211,7 @@ class BlockDeviceWriter(
                 Thread.sleep(40L * (attempt + 1))
             }
         }
-        throw lastError ?: ScsiException("SCSI command failed")
+        throw lastError ?: ScsiException("SCSI command failed", retryable = true)
     }
 
     private fun sendCbw(dataLength: Int, directionOut: Boolean, cdb: ByteArray, lun: Int): Int {
@@ -235,7 +258,13 @@ class BlockDeviceWriter(
         val data = ByteArray(18)
         val bounce = ByteArray(18)
         val n = connection.bulkTransfer(bulkIn, bounce, 18, shortTimeoutMs)
-        if (n > 0) System.arraycopy(bounce, 0, data, 0, minOf(n, 18))
+        if (n > 0) {
+            if (Scsi.isCsw(bounce)) {
+                runCatching { Scsi.parseCsw(bounce.copyOf(Scsi.CSW_SIZE)) }
+                return Sense(0, -1, 0, 0, ByteArray(0))
+            }
+            System.arraycopy(bounce, 0, data, 0, minOf(n, 18))
+        }
         runCatching { readCsw(thisTag, ignoreStatus = true) }
         if (n < 3) return Sense(0, -1, 0, 0, data)
         return Scsi.parseSense(data)
@@ -258,9 +287,10 @@ class BlockDeviceWriter(
         }
     }
 
-    private fun bulkInAll(data: ByteArray, length: Int) {
+    /** Returns an early CSW if the device skipped data-in and sent CSW on the IN pipe. */
+    private fun bulkInAll(data: ByteArray, length: Int): Csw? {
         var rec = 0
-        val bounce = ByteArray((bulkIn.maxPacketSize * 64).coerceAtLeast(bulkIn.maxPacketSize))
+        val bounce = ByteArray((bulkIn.maxPacketSize * 64).coerceAtLeast(maxOf(bulkIn.maxPacketSize, Scsi.CSW_SIZE)))
         var stalls = 0
         while (rec < length) {
             val nwant = minOf(length - rec, bounce.size)
@@ -270,9 +300,13 @@ class BlockDeviceWriter(
                 if (++stalls > 3) throw ScsiException("USB read failed (n=$n)", retryable = true)
                 continue
             }
+            if (rec == 0 && n >= Scsi.CSW_SIZE && Scsi.isCsw(bounce)) {
+                return Scsi.parseCsw(bounce.copyOf(Scsi.CSW_SIZE))
+            }
             System.arraycopy(bounce, 0, data, rec, minOf(n, length - rec))
             rec += n
         }
+        return null
     }
 
     private fun massStorageReset() {
