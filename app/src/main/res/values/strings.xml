@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PiFlash</string>
+    <string name="app_tagline">Flash and configure Raspberry Pi OS from your phone.</string>
+    <string name="flash_sd_card">Flash SD Card</string>
+    <string name="select_image">Select Image</string>
+    <string name="warning_erase">WARNING\nEverything on this SD card will be erased.</string>
+    <string name="configure_wifi">Configure Wi-Fi for headless setup</string>
+    <string name="enable_ssh">Enable SSH</string>
+    <string name="pi_ready">Raspberry Pi ready</string>
+    <string name="insert_and_power">Insert the SD card into your Raspberry Pi and power it on.</string>
+</resources>
