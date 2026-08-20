@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PiFlash Privacy Policy</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1.25rem; line-height: 1.55; }
+    h1 { font-size: 1.75rem; }
+    a { color: #c51a4a; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy for PiFlash</h1>
+  <p><strong>Effective date:</strong> 20 August 2026<br />
+  <strong>Developer:</strong> Leftclick AG<br />
+  <strong>Contact:</strong> <a href="https://leftclick.ch">leftclick.ch</a></p>
+  <p>PiFlash is a local utility. It flashes a Raspberry Pi OS image from your phone to a USB-connected SD card writer and optionally writes first-boot configuration files.</p>
+  <h2>Data we collect</h2>
+  <p>PiFlash does <strong>not</strong> collect, sell, share, or transmit personal data.</p>
+  <ul>
+    <li>No accounts</li>
+    <li>No analytics or crash reporting SDKs</li>
+    <li>No advertising</li>
+    <li>No internet permission</li>
+  </ul>
+  <h2>Data that stays on the device</h2>
+  <p>You may enter a hostname, username, password, Wi-Fi SSID and password, SSH public key, country, timezone, locale, and keyboard layout.</p>
+  <p>These values are used only to write standard Raspberry Pi first-boot files (<code>userconf</code>, <code>ssh</code>, <code>wpa_supplicant.conf</code>, <code>firstrun.sh</code>) onto the selected SD card. They are not uploaded anywhere.</p>
+  <p>Passwords are hashed on-device (SHA-512 crypt) before being written. Credentials are not logged.</p>
+  <h2>Permissions</h2>
+  <ul>
+    <li><strong>USB host</strong> is required to talk to a USB SD card reader.</li>
+    <li>Storage access is limited to the image file you pick through the system file picker.</li>
+  </ul>
+  <h2>Children</h2>
+  <p>The app is not directed at children and does not knowingly collect data from anyone.</p>
+  <h2>Not affiliated</h2>
+  <p>PiFlash is an independent tool. It is not affiliated with, endorsed by, or sponsored by Raspberry Pi Ltd.</p>
+</body>
+</html>
