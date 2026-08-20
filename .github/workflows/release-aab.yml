@@ -2,6 +2,14 @@ name: Release AAB
 
 on:
   workflow_dispatch:
+    inputs:
+      play_track:
+        description: Play track (only used if PLAY_SERVICE_ACCOUNT_JSON is set)
+        type: choice
+        options:
+          - internal
+          - production
+        default: internal
   push:
     branches: [main]
 
@@ -71,11 +79,36 @@ jobs:
       - name: Publish GitHub Release with AAB
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: aab-v1.0.0-${{ github.run_number }}
-          name: PiFlash 1.0.0 AAB (build ${{ github.run_number }})
+          tag_name: aab-v3.1-${{ github.run_number }}
+          name: PiFlash 3.1 AAB (build ${{ github.run_number }})
           body: |
             Play Store upload bundle (signed).
-            If GitHub secrets were not set, this uses a one-off CI keystore.
-            For production uploads, add PIFLASH_STORE_BASE64 and related secrets.
+            Package: piflash.shizoghost.com
+            versionName 3.1 / versionCode 4+
           files: app/build/outputs/bundle/release/*.aab
           fail_on_unmatched_files: true
+
+      - name: Write Play service account (optional)
+        env:
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PLAY_JSON:-}" ]; then
+            echo "PLAY_SERVICE_ACCOUNT_JSON not set — skip Play upload"
+            echo "PLAY_UPLOAD=0" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          printf '%s' "$PLAY_JSON" > "$HOME/play-sa.json"
+          echo "PLAY_SA_FILE=$HOME/play-sa.json" >> "$GITHUB_ENV"
+          echo "PLAY_UPLOAD=1" >> "$GITHUB_ENV"
+
+      - name: Upload AAB to Google Play
+        if: env.PLAY_UPLOAD == '1'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: ${{ env.PLAY_SA_FILE }}
+          packageName: piflash.shizoghost.com
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          track: ${{ github.event.inputs.play_track || 'internal' }}
+          status: completed
+          changesNotSentForReview: true

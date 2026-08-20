@@ -76,3 +76,28 @@ Do **not** round the Play icon. Google applies the mask.
 ## 8. Trademark
 
 Do not use the Raspberry Pi berry logo. Nominative use of the words “Raspberry Pi OS” in the description is fine with the unaffiliated disclaimer already in the listing.
+
+## 9. Auto-upload from GitHub (internal testing)
+
+Play Console has no “Connect GitHub” switch. GitHub Actions uses the Play Developer API.
+
+Do this once:
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → create or pick a project.
+2. Enable **Google Play Android Developer API**.
+3. IAM → Service accounts → Create (`piflash-play-upload`).
+4. Keys → Add key → JSON. Download the file.
+5. Play Console → **Users and permissions** → Invite the service account email.
+   Grant at least: **View app information**, **Release to testing tracks**, **Manage testing tracks**.
+6. Wait up to **24 hours** after the invite (API 403 until it propagates).
+7. GitHub → PiFlash → Settings → Secrets → Actions → New secret:
+
+| Secret | Value |
+|--------|--------|
+| `PLAY_SERVICE_ACCOUNT_JSON` | entire JSON file, paste as-is |
+
+After that, every **Release AAB** run on `main` uploads the signed AAB to the **internal** track (`status: completed`).
+
+Manual override: Actions → Release AAB → Run workflow → choose `internal` or `production`.
+
+Do **not** use `production` until closed testing + the 12 testers / 14 days gate is done.
