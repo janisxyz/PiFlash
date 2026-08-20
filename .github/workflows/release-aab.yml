@@ -43,11 +43,15 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Version for this run
+      - name: Version for this commit
         run: |
-          echo "PIFLASH_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "PIFLASH_VERSION_NAME=3.3.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "versionName 3.3.${{ github.run_number }} / versionCode ${{ github.run_number }}"
+          set -euo pipefail
+          COUNT=$(git rev-list --count HEAD)
+          CODE=$((COUNT + 1000))
+          NAME="3.4.${COUNT}"
+          echo "PIFLASH_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+          echo "PIFLASH_VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "versionName $NAME / versionCode $CODE"
 
       - name: Resolve Play track
         run: |
@@ -148,8 +152,8 @@ jobs:
       - name: Publish GitHub Release with AAB
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: aab-v3.3-${{ github.run_number }}
-          name: PiFlash 3.3.${{ github.run_number }} AAB
+          tag_name: aab-${{ env.PIFLASH_VERSION_NAME }}
+          name: PiFlash ${{ env.PIFLASH_VERSION_NAME }} AAB
           body_path: ${{ env.RELEASE_NOTES_FILE }}
           files: app/build/outputs/bundle/release/*.aab
           fail_on_unmatched_files: true

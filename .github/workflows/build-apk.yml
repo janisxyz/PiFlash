@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -35,11 +37,15 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Version for this run
+      - name: Version for this commit
         run: |
-          echo "PIFLASH_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "PIFLASH_VERSION_NAME=3.3.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "versionName 3.3.${{ github.run_number }} / versionCode ${{ github.run_number }}"
+          set -euo pipefail
+          COUNT=$(git rev-list --count HEAD)
+          CODE=$((COUNT + 1000))
+          NAME="3.4.${COUNT}"
+          echo "PIFLASH_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+          echo "PIFLASH_VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "versionName $NAME / versionCode $CODE"
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --no-daemon --stacktrace
@@ -56,12 +62,12 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: apk-v3.3-${{ github.run_number }}
-          name: PiFlash 3.3.${{ github.run_number }} (debug APK)
+          tag_name: apk-${{ env.PIFLASH_VERSION_NAME }}
+          name: PiFlash ${{ env.PIFLASH_VERSION_NAME }} (debug APK)
           body: |
-            Debug APK from GitHub Actions (3.3.${{ github.run_number }}).
-            Sideload and allow unknown sources. USB host required.
-            Confirm this version in Settings before reporting SCSI errors.
+            Debug APK ${{ env.PIFLASH_VERSION_NAME }} (versionCode ${{ env.PIFLASH_VERSION_CODE }}).
+            Same version as the Play AAB for this commit. Sideload package is `.debug`.
+            Confirm this version in Settings before reporting USB errors.
           files: app/build/outputs/apk/debug/*.apk
           fail_on_unmatched_files: true
           generate_release_notes: true
