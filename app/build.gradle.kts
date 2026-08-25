@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "ch.leftclick.piflash"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "piflash.shizoghost.com"
         minSdk = 31
-        targetSdk = 35
-        versionCode = System.getenv("PIFLASH_VERSION_CODE")?.toIntOrNull() ?: 9
-        versionName = System.getenv("PIFLASH_VERSION_NAME") ?: "3.4"
+        targetSdk = 36
+        versionCode = System.getenv("PIFLASH_VERSION_CODE")?.toIntOrNull() ?: 10
+        versionName = System.getenv("PIFLASH_VERSION_NAME") ?: "3.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
